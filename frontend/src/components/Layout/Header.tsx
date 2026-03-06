@@ -1,5 +1,3 @@
-import Neo4jLogoBW from '../../logo.svg';
-import Neo4jLogoColor from '../../logo-color.svg';
 import {
   MoonIconOutline,
   SunIconOutline,
@@ -10,7 +8,7 @@ import {
   ArrowLeftIconOutline,
   ArrowDownTrayIconOutline,
 } from '@neo4j-ndl/react/icons';
-import { Button, SpotlightTarget, TextLink, Typography, useSpotlightContext } from '@neo4j-ndl/react';
+import { Button, SpotlightTarget, TextLink, Typography, useSpotlightContext, Logo } from '@neo4j-ndl/react';
 import { useCallback, useContext, useEffect, useRef, useState, useMemo } from 'react';
 import { IconButtonWithToolTip } from '../UI/IconButtonToolTip';
 import { buttonCaptions, SKIP_AUTH, tooltips } from '../../utils/Constants';
@@ -88,11 +86,7 @@ const Header: React.FC<HeaderProp> = ({ chatOnly, deleteOnClick, setOpenConnecti
         >
           <section className='flex w-1/3 shrink-0 grow-0 items-center min-w-[200px]'>
             <Typography variant='h1'>
-              <img
-                src={colorMode === 'dark' ? Neo4jLogoBW : Neo4jLogoColor}
-                className='h-8! min-h-8 min-w-8'
-                alt='Neo4j Logo'
-              />
+              <Logo className='h-6 min-h-6 min-w-12 md:h-8 md:min-h-12 md:min-w-24 md:mr-2' type='full' />
             </Typography>
           </section>
           {!chatOnly ? (
