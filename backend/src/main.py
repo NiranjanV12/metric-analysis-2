@@ -673,6 +673,13 @@ async def processing_chunks(chunkId_chunkDoc_list,graph,credentials,file_name,mo
   
   cleaned_graph_documents = handle_backticks_nodes_relationship_id_type(graph_documents)
   
+  # Debug: Log cleaned graph documents
+  logging.info(f"=== DEBUG: Cleaned graph documents: {len(cleaned_graph_documents)} documents ===")
+  for i, gd in enumerate(cleaned_graph_documents[:3]):
+      logging.info(f"Document {i}: {len(gd.nodes)} nodes, {len(gd.relationships)} relationships")
+      for node in gd.nodes[:3]:
+          logging.info(f"  Node: type={node.type}, id={node.id}, properties={dict(node.properties)}")
+  
   start_save_graphDocuments = time.time()
   save_graphDocuments_in_neo4j(graph, cleaned_graph_documents)
   end_save_graphDocuments = time.time()

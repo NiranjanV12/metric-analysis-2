@@ -19,6 +19,7 @@ import { useCredentials } from '../../context/UserCredentials';
 import { useLocation, useNavigate } from 'react-router';
 import { useMessageContext } from '../../context/UserMessages';
 import { RiChatSettingsLine } from 'react-icons/ri';
+import { MdDashboard } from 'react-icons/md';
 import ChatModeToggle from '../ChatBot/ChatModeToggle';
 import { HeaderProp } from '../../types';
 import { downloadClickHandler, getIsLoading } from '../../utils/Utils';
@@ -149,6 +150,16 @@ const Header: React.FC<HeaderProp> = ({ chatOnly, deleteOnClick, setOpenConnecti
                     disabled={getIsLoading(messages)}
                   >
                     <ArrowTopRightOnSquareIconOutline />
+                  </IconButtonWithToolTip>
+                  <IconButtonWithToolTip
+                    label={tooltips.dashboard}
+                    onClick={() => navigate('/dashboard')}
+                    text={tooltips.dashboard}
+                    size='large'
+                    clean
+                    placement='left'
+                  >
+                    <MdDashboard className='n-size-token-7' />
                   </IconButtonWithToolTip>
                   {!SKIP_AUTH && <Profile />}
                   {pathname === '/readonly' &&

@@ -1,0 +1,15 @@
+{
+  "application": "static-webapp",
+  "logs": [
+    {
+      "timestamp": "2021-08-11T21:52:15.959",
+      "level": "ERROR",
+      "message": "app-service : unhealthy",
+    },
+    {
+      "timestamp": "2021-08-11T21:57:47.248",
+      "level": "ERROR",
+      "message": "File Not found exception: path /data99/user1/file123.txt"
+    }
+  ]
+}

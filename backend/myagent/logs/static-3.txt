@@ -1,0 +1,4 @@
+{
+  "application": "static-3",
+  "logs": []
+}

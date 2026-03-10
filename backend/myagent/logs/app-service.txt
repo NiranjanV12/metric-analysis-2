@@ -1,0 +1,15 @@
+{
+  "application": "app-service",
+  "logs": [
+    {
+      "timestamp": "2021-08-11T20:57:47.248",
+      "level": "ERROR",
+      "message": "database exception"
+    },
+    {
+      "timestamp": "2021-08-11T20:52:15.959",
+      "level": "ERROR",
+      "message": "static-3 : unhealthy",
+    }
+  ]
+}

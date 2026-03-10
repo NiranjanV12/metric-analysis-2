@@ -1,0 +1,50 @@
+{
+  "Services": [
+    
+      {
+        "ServiceName": "UI-svc",
+        "StartCommand": "java -jar uisvc.jar",
+        "HealthUrl": "http://uisvc/health",
+        "DependsOn": ["static-1","static-2"]
+      }
+    ,
+    {
+        "ServiceName": "static-1",
+        "StartCommand": "java -jar static1.jar",
+        "HealthUrl": "http://static1/health",
+        "DependsOn": ["static-2"]
+    },
+    {
+        "ServiceName": "static-2",
+        "StartCommand": "java -jar static2.jar",
+        "HealthUrl": "http://static2/health",
+        "DependsOn": ["static-3"]
+
+    },
+    {
+        "ServiceName": "static-3",
+        "StartCommand": "java -jar static3.jar",
+        "HealthUrl": "http://static3/health",
+        "DbCheck": "select * from table3 where value=pending",
+        "DbUpdate": "update table table3 set value=init where value=pending"
+
+    },
+    {
+        "ServiceName": "app-service",
+        "StartCommand": "java -jar app-service.jar",
+        "HealthUrl": "http://app-service/health",
+        "DbCheck": "select * from table1AS where value=pending",
+        "DbUpdate": "update table table1AS set value=init where value=pending"
+        "DependsOn": ["db-service"]
+    },
+    {
+        "ServiceName": "static-webapp",
+        "StartCommand": "java -jar static-webapp.jar",
+        "HealthUrl": "http://static-webapp/health",
+        "DbCheck": "select * from table1WS where value=pending",
+        "DbUpdate": "update table table1WS set value=init where value=pending"
+        "DependsOn": ["app-service"]
+
+    }
+  ]
+}

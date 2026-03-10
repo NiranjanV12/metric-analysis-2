@@ -1,0 +1,24 @@
+{
+  "status": "Success",
+  "data": [
+    {
+      "id": "-3866290546902021386",
+      "service": "static-webapp",
+      "healthUrl": "http://localhost:7050/microsvc-static-1/health",
+      "status": "Stopped"
+    },
+    {
+      "id": "-6561387240310304532",
+      "service": "app-service",
+      "healthUrl": "http://localhost:7051/microsvc-static-1/health",
+      "status": "Running"
+    },
+    {
+      "id": "-2181401285513061172",
+      "service": "static-3",
+      "healthUrl": "http://localhost:7050/microsvc-static-1/health",
+      "status": "Stopped"
+    }
+  ],
+  "message": "Retrieved health status for 3 services"
+}

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import gc
+import httpx
 import json
 import logging
 import os
@@ -1247,6 +1248,139 @@ async def change_embedding_model(
         return create_api_response("Failed", message=f"An unexpected error occurred: {str(e)}", error=str(e))
     finally:
         gc.collect()
+
+@app.get("/get-service-health")
+async def get_service_health():
+    """
+    Get health status of all services defined in SERVICES_TO_MONITOR env variable.
+    Returns a list of services with their health URL and current status.
+    """
+    logger.log_struct({'inMethod':'get_service_health'}, "INFO")
+    try:
+        start = time.time()
+        services_config = os.environ.get("SERVICES_TO_MONITOR", "[]")
+        
+        try:
+            services = json.loads(services_config)
+        except json.JSONDecodeError:
+            return create_api_response(
+                'Failed',
+                message='Invalid JSON format in SERVICES_TO_MONITOR environment variable'
+            )
+        
+        if not isinstance(services, list):
+            return create_api_response(
+                'Failed',
+                message='SERVICES_TO_MONITOR must be a JSON array'
+            )
+        
+        async def check_service_health(service):
+            """Check health of a single service."""
+            service_name = service.get("serviceName", "Unknown")
+            health_url = service.get("healthUrl", "")
+            
+            if not health_url:
+                return {
+                    "id": str(hash(service_name)),
+                    "service": service_name,
+                    "healthUrl": "",
+                    "status": "Unknown"
+                }
+            
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(health_url)
+                    if response.status_code == 200:
+                        status = "Running"
+                    else:
+                        status = "Stopped"
+            except httpx.RequestError:
+                status = "Stopped"
+            except Exception:
+                status = "Unknown"
+            
+            return {
+                "id": str(hash(service_name + health_url)),
+                "service": service_name,
+                "healthUrl": health_url,
+                "status": status
+            }
+        
+        # Check health of all services concurrently
+        health_results = await asyncio.gather(
+            *[check_service_health(service) for service in services],
+            return_exceptions=True
+        )
+        
+        # Filter out any exceptions
+        health_results = [
+            result for result in health_results 
+            if not isinstance(result, Exception)
+        ]
+        
+        end = time.time()
+        elapsed_time = end - start
+        
+        json_obj = {
+            'api_name': 'get_service_health',
+            'service_count': len(health_results),
+            'logging_time': formatted_time(datetime.now(timezone.utc)),
+            'elapsed_api_time': f'{elapsed_time:.2f}'
+        }
+        logger.log_struct(json_obj, "INFO")
+        
+        return create_api_response(
+            'Success',
+            data=health_results,
+            message=f"Retrieved health status for {len(health_results)} services"
+        )
+        
+    except Exception as e:
+        job_status = "Failed"
+        message = "Unable to retrieve service health status"
+        error_message = str(e)
+        logging.exception(f'Exception in get_service_health: {error_message}')
+        return create_api_response(job_status, message=message, error=error_message)
+
+@app.get("/check-issues")
+async def check_issues():
+    """
+    Check issues endpoint - calls the AI agent to analyze service health.
+    This endpoint uses LangGraph agent to check services and provide diagnosis.
+    """
+    logger.log_struct({'inMethod':'check_issues'}, "INFO")
+    try:
+        start = time.time()
+        
+        from myagent.agent1 import run_agent
+        # Run the agent with a query to check for issues
+        agent_response = await run_agent(
+            "Check for issues with all services and provide a diagnosis"
+        )
+        
+        end = time.time()
+        elapsed_time = end - start
+        
+        json_obj = {
+            'api_name': 'check_issues',
+            'agent_status': 'Success',
+            'logging_time': formatted_time(datetime.now(timezone.utc)),
+            'elapsed_api_time': f'{elapsed_time:.2f}'
+        }
+        logger.log_struct(json_obj, "INFO")
+        
+        # Return the agent's graph response
+        return create_api_response(
+            'Success',
+            data=agent_response,
+            message='Issues check completed via AI agent'
+        )
+    except Exception as e:
+        job_status = "Failed"
+        message = "Unable to check issues"
+        error_message = str(e)
+        logging.exception(f'Exception in check_issues: {error_message}')
+        return create_api_response(job_status, message=message, error=error_message)
 
 if __name__ == "__main__":
     uvicorn.run(app)

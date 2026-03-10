@@ -227,6 +227,13 @@ async def get_graph_document_list(
             graph_document_list = llm_transformer.convert_to_graph_documents(combined_chunk_document_list)
         else:
             graph_document_list = await llm_transformer.aconvert_to_graph_documents(combined_chunk_document_list)
+        
+        # Debug: Log graph document details
+        logging.info(f"=== DEBUG: Graph transformation completed ===")
+        for i, gd in enumerate(graph_document_list[:3]):  # Log first 3 documents
+            logging.info(f"Document {i}: {len(gd.nodes)} nodes, {len(gd.relationships)} relationships")
+            for node in gd.nodes[:3]:  # Log first 3 nodes
+                logging.info(f"  Node: type={node.type}, id={node.id}, properties={dict(node.properties)}")
     except Exception as e:
        logging.error(f"Error in graph transformation: {e}", exc_info=True)
        raise LLMGraphBuilderException(f"Graph transformation failed: {str(e)}")

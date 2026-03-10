@@ -212,6 +212,7 @@ export const tooltips = {
   clearGraphSettings: 'Clear configured Graph Schema',
   applySettings: 'Apply Graph Schema',
   openChatPopout: 'Chat',
+  dashboard: 'Service Health Dashboard',
   downloadChat: 'Download Conversation',
   visualizeGraph: 'Visualize Graph Schema',
   additionalInstructions: 'Analyze instructions for schema',

@@ -1,4 +1,15 @@
 [
+  { "schema": "logjson", "triplet": ["Level-HAS_LOG->Message"] },
+  {
+    "schema": "sourceOfTruth",
+    "triplet": [
+      "Service-DEPENDS_ON->Service",
+      "Service-START_COMMAND->StartCommand",
+      "Service-HEALTH_URL->HealthUrl",
+      "Service-CHECK_QUERY->DbCheck",
+      "Service-UPDATE_QUERY->DbUpdate"
+    ]
+  },
   {
     "schema": "crime",
     "triplet": [
