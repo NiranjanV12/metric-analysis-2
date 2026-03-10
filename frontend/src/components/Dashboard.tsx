@@ -20,7 +20,7 @@ import { MdViewList, MdBugReport } from 'react-icons/md';
 import { getServiceHealthAPI, ServiceHealth } from '../services/ServiceHealth';
 import { checkIssuesAPI, CheckIssuesResponse } from '../services/CheckIssues';
 import { showErrorToast } from '../utils/Toasts';
-import { tooltips, chatModeLables } from '../utils/Constants';
+import { tooltips } from '../utils/Constants';
 import { ThemeWrapperContext } from '../context/ThemeWrapper';
 import SideNav from './Layout/SideNav';
 import DrawerChatbot from './Layout/DrawerChatbot';
@@ -177,7 +177,7 @@ const Dashboard: React.FC = () => {
                   error: undefined,
                 },
               },
-              currentMode: chatModeLables[chatModes[0]],
+              currentMode: chatModes[0],
             };
             setMessages((prev: Messages[]) => [...prev, botMessage]);
           }
