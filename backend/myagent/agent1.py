@@ -1178,14 +1178,14 @@ builder.add_node("errorSummary", errorSummary)
 ##builder.add_edge("getLogsData", "getErrors")
 ##builder.add_edge("getHealthUrlData", "getErrors")
 
-builder.add_edge(START, "insertLogsData")
-builder.add_edge(START, "insertHealthUrlData")
+##builder.add_edge(START, "insertLogsData")
+##builder.add_edge(START, "insertHealthUrlData")
 
-builder.add_edge("insertLogsData", "getLogsErrors")
-builder.add_edge("insertHealthUrlData", "getHealthErrors")
+##builder.add_edge("insertLogsData", "getLogsErrors")
+##builder.add_edge("insertHealthUrlData", "getHealthErrors")
 
-##builder.add_edge(START, "getLogsErrors")
-##builder.add_edge(START, "getHealthErrors")
+builder.add_edge(START, "getLogsErrors")
+builder.add_edge(START, "getHealthErrors")
 builder.add_edge("getLogsErrors", "errorSummary")
 builder.add_edge("getHealthErrors", "errorSummary")
 
@@ -1326,15 +1326,15 @@ async def run_agent(query: str = "Check for issues with all services") -> dict:
     
     # Add nodedetails if available (for Details modal)
     if "nodedetails" in result:
-        response["nodedetails"] = result["nodedetails"]
+        response["nodedetails"] = result["nodedetails"][0]
     
     # Add sources if available (for Details modal - Sources tab)
     if "sources" in result:
-        response["sources"] = result["sources"]
+        response["sources"] = result["sources"][0]
     
     # Add entities if available (for Details modal - Entities tab)
     if "entities" in result:
-        response["entities"] = result["entities"]
+        response["entities"] = result["entities"][0]
     
     # Add model if available (for Details modal display)
     if "model" in result:

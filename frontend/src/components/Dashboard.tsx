@@ -141,7 +141,7 @@ const Dashboard: React.FC = () => {
           if (response && response.status === 'Success' && response.data) {
             let welcomeMessage = '## System Status Check\n\n';
             if (response.data.display_markdown) {
-              welcomeMessage += `${response.data.display_markdown  }\n\n`;
+              welcomeMessage += `${response.data.display_markdown}\n\n`;
             } else if (response.data.diagnosis) {
               welcomeMessage += `**Diagnosis:** ${response.data.diagnosis}\n\n`;
             }
@@ -170,7 +170,6 @@ const Dashboard: React.FC = () => {
                   model: response.data.model ?? '',
                   total_tokens: response.data.total_tokens ?? 0,
                   response_time: response.data.response_time ?? 0,
-                  cypher_query: '',
                   graphonly_entities: response.data.entities ?? [],
                   entities: response.data.entities ?? [],
                   nodeDetails: response.data.nodedetails ?? {},
@@ -191,7 +190,7 @@ const Dashboard: React.FC = () => {
     }
   }, [isRightExpanded, chatStarted, connectionStatus, setMessages]);
 
-  const chatModes = ['graph+vector+fulltext'];
+  const chatModes = ['graph_vector_fulltext'];
 
   const [httpStatusData] = useState<HttpStatusData[]>([
     { statusCode: 200, count: 1450 },
