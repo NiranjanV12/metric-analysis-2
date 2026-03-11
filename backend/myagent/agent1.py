@@ -1324,17 +1324,39 @@ async def run_agent(query: str = "Check for issues with all services") -> dict:
     if "analysis_result" in result:
         response["diagnosis"] = result["analysis_result"]
     
-    # Add nodedetails if available (for Details modal)
-    if "nodedetails" in result:
-        response["nodedetails"] = result["nodedetails"][0]
+    # Combine/merge nodedetails from list to object (for Details modal)
+    if "nodedetails" in result and result["nodedetails"]:
+        combined_nodedetails = {"chunkdetails": [], "entitydetails": {}, "communitydetails": []}
+        for nd in result["nodedetails"]:
+            if isinstance(nd, dict):
+                if nd.get("chunkdetails"):
+                    combined_nodedetails["chunkdetails"].extend(nd["chunkdetails"])
+                if nd.get("entitydetails"):
+                    combined_nodedetails["entitydetails"].update(nd["entitydetails"])
+                if nd.get("communitydetails"):
+                    combined_nodedetails["communitydetails"].extend(nd["communitydetails"])
+        response["nodedetails"] = combined_nodedetails
     
-    # Add sources if available (for Details modal - Sources tab)
-    if "sources" in result:
-        response["sources"] = result["sources"][0]
+    # Combine/merge sources from list (for Details modal - Sources tab)
+    if "sources" in result and result["sources"]:
+        combined_sources = []
+        for s in result["sources"]:
+            if isinstance(s, list):
+                combined_sources.extend(s)
+            elif s:
+                combined_sources.append(s)
+        response["sources"] = list(set(combined_sources))
     
-    # Add entities if available (for Details modal - Entities tab)
-    if "entities" in result:
-        response["entities"] = result["entities"][0]
+    # Combine/merge entities from list (for Details modal - Entities tab)
+    if "entities" in result and result["entities"]:
+        combined_entities = {"entityids": [], "relationshipids": []}
+        for e in result["entities"]:
+            if isinstance(e, dict):
+                if e.get("entityids"):
+                    combined_entities["entityids"].extend(e["entityids"])
+                if e.get("relationshipids"):
+                    combined_entities["relationshipids"].extend(e["relationshipids"])
+        response["entities"] = combined_entities
     
     # Add model if available (for Details modal display)
     if "model" in result:
