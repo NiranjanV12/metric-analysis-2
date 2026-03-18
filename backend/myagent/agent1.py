@@ -21,6 +21,60 @@ from langgraph.types import Send
 from langgraph.prebuilt import tools_condition, ToolNode
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional, List
+from langchain_neo4j import Neo4jGraph
+
+
+def execute_neo4j_query(query, params=None):
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
+    neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
+    
+    graph = Neo4jGraph(
+        url=neo4j_uri,
+        username=neo4j_username,
+        password=neo4j_password,
+        database=neo4j_database
+    )
+    
+    print(f"Neo4j Query: {query}")
+    print(f"Neo4j Params: {params}")
+    
+    result = graph.query(query, params or {})
+    return result
+
+
+def parse_source_of_truth_response(neo4j_query_result, type):
+    result_dict = {}
+    
+    for record in neo4j_query_result:
+
+        if(type=="service"):
+            service = record.get('service', {})
+            result_dict['serviceName'] = service.get('id', '')    
+        elif(type=="logs"):
+            service = record.get('level', {})
+            print("ssssssssssssssssss",service)
+            result_dict['log_level'] = service.get('id', '') 
+        elif(type=="health"):
+            service = record.get('service', {})
+            result_dict['serviceName'] = service.get('id', '')             
+#{'methodName': 'getLogsErrors', 'message': "Neo4j query result for : [{'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'database exception'}), 'n': {'id': 'database exception'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'static-3 : unhealthy'}), 'n': {'id': 'static-3 : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'app-service : unhealthy'}), 'n': {'id': 'app-service : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'File Not found exception: path /data99/user1/file123.txt'}), 'n': {'id': 'File Not found exception: path /data99/user1/file123.txt'}}]"}
+#{'methodName': 'analysisAndSolution', 'message': "Neo4j query result for app-service: [{'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'DEPENDS_ON', {'id': 'db-service'}), 'n': {'id': 'db-service'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select * from table1S where value=pending'}), 'n': {'id': 'select * from table1S where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'UPDATE_QUERY', {'id': 'update table table1S set value=init where value=pending'}), 'n': {'id': 'update table table1S set value=init where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'START_COMMAND', {'id': 'java -jar app-service.jar'}), 'n': {'id': 'java -jar app-service.jar'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select'}), 'n': {'id': 'select'}}]"}
+        r1 = record.get('r1')
+        n = record.get('n', {})
+        
+        if r1 and n:
+            rel_type = r1[1]
+            value = n.get('id', '')
+            
+            if rel_type and value:
+                if rel_type in result_dict:
+                    result_dict[rel_type].append(value)
+                else:
+                    result_dict[rel_type] = [value]
+    
+    return json.dumps(result_dict)
 
 
 class FailedComponent(BaseModel):
@@ -501,114 +555,29 @@ def getLogsErrors(state: AgentState):
     log_agent(f"Using CYPHER_MODEL: {CYPHER_MODEL}", "getLogsErrors")
 
     try:
-        # Get SERVICES_TO_MONITOR from environment
-        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
-        try:
-            services = json.loads(services_config)
-        except json.JSONDecodeError:
-            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "getLogsErrors", "ERROR")
-            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
-        
-        if not isinstance(services, list):
-            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
-        
-        # Get document names (logFilePath) from each service
-        document_names = []
-        for service in services:
-            log_file_path = service.get("logFilePath", "")
-            if log_file_path:
-                # Extract filename from path
-                file_name = os.path.basename(log_file_path)
-                document_names.append(file_name)
-        
-        if not document_names:
-            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
-        document_names=[]
-        log_agent(f"Document names for chat: {document_names}", "getLogsErrors")
-        
-        # Prepare the question for error analysis
-        #question = """Step1) Retrive ALL Messages that HAS_LOG as ERROR level. Messages containing exception,unhealthy, other errors. Make sure u include all ERROR level messages. --- Step2) Analyse them, then Count and provide details for each ERROR as output: srno, affected functionality and primary reason for failure. --- Step3) Considering each primary reason for failure identify the failed Services/Component. Provide the list of failed Component, ComponentType(ComponentType must be either Service OR Functionality), reasonForFailure. Provide output as in below format output: List of failed Components(Service/Functionality), its reason in json format."""
-        #question= """"Execute following Query : MATCH (message:Message)<-[:HAS_LOG]-(level:Level) WHERE level.id = 'ERROR' RETURN message" ---- and output the retrived messages as json list."""
-        #question= "Execute following Query : MATCH (level:Level)-[:HAS_LOG]->(message:Message) WHERE level.id = 'ERROR' RETURN level, message  ---  output the json list of level and message"
-        question= "Execute following Query : MATCH (level:Level)-[:HAS_LOG]->(message:Message) WHERE level.id = 'ERROR' RETURN level,message --- output all the result as simple markdown list of level and its message. Do not provide any explanation"
-
-        
         # Get Neo4j credentials from environment
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
-        # Get model from environment
-        model = os.getenv("CYPHER_MODEL", CYPHER_MODEL)
-        
-        # Use "vector" mode which supports document filtering
-        # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
-        chat_mode = CHAT_GRAPH_MODE
-        
-        # Call chat_bot API
-        chat_data = {
-            'uri': neo4j_uri,
-            'userName': neo4j_username,
-            'password': neo4j_password,
-            'database': neo4j_database,
-            'model': model,
-            'question': question,
-            'document_names': json.dumps(document_names),
-            'session_id': 'agent_session',
-            'mode': chat_mode,
-            'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
-            'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
-        }
-        
-        log_agent(f"Calling chat_bot API with mode: {chat_mode}", "getLogsErrors")
-        
-        # Clear chat session before calling chat_bot
-        clear_data = {
-            'session_id': 'agent_session'
-        }
-        
-        clear_response = requests.post(
-            f"{API_BASE_URL}/clear_chat_bot",
-            data=clear_data,
-                timeout=900
-        )
-        clear_response.raise_for_status()
-        
-        log_agent("Chat session cleared", "getLogsErrors")
-        
-        # Now call chat_bot API
-        chat_response = requests.post(
-            f"{API_BASE_URL}/chat_bot",
-            data=chat_data,
-                timeout=900
-        )
-        chat_response.raise_for_status()
-        chat_result = chat_response.json()
-        #chat_result=[]
-        log_agent(f"chat_bot response: {chat_result}", "getLogsErrors")
-        
-        # Extract only the answer message from chat_bot response
-        answer_message = ""
-        context = ""
-        if chat_result.get("status") == "Success" and chat_result.get("data"):
-            data = chat_result["data"]
-            # Try to get answer from metric_details first, fallback to message
-            if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
-                answer_message = data["info"]["metric_details"]["answer"]
-                context = data["info"]["metric_details"]["contexts"]
-            else:
-                answer_message = data.get("message", "")
-                context = data.get("context", "")
+        query = """
+        MATCH (level:Level)-[r1:HAS_LOG]->(n)
+        RETURN level,r1,n
+        """
 
-        log_agent(f"getErrors context response: {context}", "getLogsErrors")
-        log_agent(f"getErrors answer_message response: {answer_message}", "getLogsErrors")
+        neo4j_query_result = execute_neo4j_query(query)
+        log_agent(f"Neo4j query result for : {neo4j_query_result}", "getLogsErrors")
         
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "logs")
+        log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getLogsErrors")
+        
+
         log_agent("getLogsErrors node exiting successfully", "getLogsErrors")
         return {
-            "extractedErrorContext": {"ErrorLogs": [answer_message]},
+            "extractedErrorContext": {"ErrorLogs": [source_of_truth_data]},
             "messages": [
-                {"role": "system", "content": answer_message}
+                {"role": "system", "content": source_of_truth_data}
             ]
         }
         
@@ -623,112 +592,31 @@ def getHealthErrors(state: AgentState):
     log_agent(f"Using CYPHER_MODEL: {CYPHER_MODEL}", "getHealthErrors")
 
     try:
-        # Get SERVICES_TO_MONITOR from environment
-        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
-        try:
-            services = json.loads(services_config)
-        except json.JSONDecodeError:
-            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "getHealthErrors", "ERROR")
-            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
-        
-        if not isinstance(services, list):
-            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
-        
-        # Get document names (logFilePath) from each service
-        document_names = []
-        for service in services:
-            log_file_path = service.get("logFilePath", "")
-            if log_file_path:
-                # Extract filename from path
-                file_name = os.path.basename(log_file_path)
-                document_names.append(file_name)
-        
-        if not document_names:
-            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
-        document_names=[]
-        log_agent(f"Document names for chat: {document_names}", "getHealthErrors")
-        
-        # Prepare the question for error analysis
-        #question = """Step1) Retrive ALL Messages that HAS_LOG as ERROR level. Messages containing exception,unhealthy, other errors. Make sure u include all ERROR level messages. --- Step2) Analyse them, then Count and provide details for each ERROR as output: srno, affected functionality and primary reason for failure. --- Step3) Considering each primary reason for failure identify the failed Services/Component. Provide the list of failed Component, ComponentType(ComponentType must be either Service OR Functionality), reasonForFailure. Provide output as in below format output: List of failed Components(Service/Functionality), its reason in json format."""
-        #question= "Execute following Query : MATCH (service:Service)-[:CURRENT_STATUS]->(status:Status) WHERE status.id <> 'Running' RETURN service,status --- and output the result as json list of service and its status"
-        question= "Execute following Query : MATCH (service:Service)-[:CURRENT_STATUS]->(status:Status) WHERE status.id <> 'Running' RETURN service,status --- output all the result as simple markdown list of service and its status. Do not provide any explanation"
-               
+         
         # Get Neo4j credentials from environment
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
-        # Get model from environment
-        model = os.getenv("CYPHER_MODEL", CYPHER_MODEL)
         
-        # Use "vector" mode which supports document filtering
-        # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
-        chat_mode = CHAT_GRAPH_MODE
-        
-        # Call chat_bot API
-        chat_data = {
-            'uri': neo4j_uri,
-            'userName': neo4j_username,
-            'password': neo4j_password,
-            'database': neo4j_database,
-            'model': model,
-            'question': question,
-            'document_names': json.dumps(document_names),
-            'session_id': 'agent_session',
-            'mode': chat_mode,
-            'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
-            'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
-        }
-        
-        log_agent(f"Calling chat_bot API with mode: {chat_mode}", "getHealthErrors")
-        
-        # Clear chat session before calling chat_bot
-        clear_data = {
-            'session_id': 'agent_session'
-        }
-        
-        clear_response = requests.post(
-            f"{API_BASE_URL}/clear_chat_bot",
-            data=clear_data,
-                timeout=900
-        )
-        clear_response.raise_for_status()
-        
-        log_agent("Chat session cleared", "getHealthErrors")
-        
-        # Now call chat_bot API
-        chat_response = requests.post(
-            f"{API_BASE_URL}/chat_bot",
-            data=chat_data,
-                timeout=900
-        )
-        chat_response.raise_for_status()
-        chat_result = chat_response.json()
-        #chat_result=[]
-        log_agent(f"chat_bot response: {chat_result}", "getHealthErrors")
-        
-        # Extract only the answer message from chat_bot response
-        answer_message = ""
-        context = ""
-        if chat_result.get("status") == "Success" and chat_result.get("data"):
-            data = chat_result["data"]
-            # Try to get answer from metric_details first, fallback to message
-            if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
-                answer_message = data["info"]["metric_details"]["answer"]
-                context = data["info"]["metric_details"]["contexts"]
-            else:
-                answer_message = data.get("message", "")
-                context = data.get("context", "")
+        query = """
+        MATCH (service:Service)-[r1:CURRENT_STATUS]->(n:Status {id :"Stopped"})
+        RETURN service,r1,n
+        """
 
-        log_agent(f"getHealthErrors context response: {context}", "getHealthErrors")
-        log_agent(f"getHealthErrors answer_message response: {answer_message}", "getHealthErrors")
+        neo4j_query_result = execute_neo4j_query(query)
+        log_agent(f"Neo4j query result for : {neo4j_query_result}", "getHealthErrors")
         
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "health")
+        log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getHealthErrors")
+        
+
         log_agent("getHealthErrors node exiting successfully", "getHealthErrors")
         return {
-            "extractedErrorContext": {"StoppedServices": [answer_message]},
+            "extractedErrorContext": {"StoppedServices": [source_of_truth_data]},
             "messages": [
-                {"role": "system", "content": answer_message}
+                {"role": "system", "content": source_of_truth_data}
             ]
         }
         
@@ -780,7 +668,7 @@ def errorSummary(state: AgentState):
         try:
             llm, _, _ = get_llm(model=SUMMARY_MODEL)
 
-            goal = """Analyze the StoppedServices and ErrorLogs below Findings to identify failed components with their component_name, component_type and reason_for_failure. Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
+            goal = """Analyze each service status in stopped StoppedServices and each log ErrorLogs in below Findings to identify failed components with their UNIQUE component_name, component_type and reason_for_failure(s). Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
 
             prompt = (
             f"-----\n## Goal:\n {goal}\n"
@@ -844,156 +732,30 @@ def analysisAndSolution(state: Component):
     log_agent(f"Current MessageState: {state}", "analysisAndSolution")
 
     try:
-        # Get SERVICES_TO_MONITOR from environment
-        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
-        try:
-            services = json.loads(services_config)
-        except json.JSONDecodeError:
-            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "analysisAndSolution", "ERROR")
-            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
-        
-        if not isinstance(services, list):
-            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
-        
-        # Get document names (logFilePath) from each service
-        document_names = []
-        for service in services:
-            log_file_path = service.get("logFilePath", "")
-            if log_file_path:
-                # Extract filename from path
-                file_name = os.path.basename(log_file_path)
-                document_names.append(file_name)
-        
-        if not document_names:
-            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
-        document_names=[]
-        log_agent(f"Document names for chat: {document_names}", "analysisAndSolution")
-        
-        #Prepare the question for error analysis
-        # prevMessageOut=state['messages'][-1].content
-        # log_agent(f"prevMessageOut: {prevMessageOut}", "analysisAndSolution")
-
-        #Extract JSON from prevMessageOut using LLM
-        
         component = state["component"]
-
         
-        # # Parse failed_components from extracted_json
-        # failed_components = []
-        # try:
-        #     error_summary_data = json.loads(extracted_json) if isinstance(extracted_json, str) else extracted_json
-        #     failed_components = error_summary_data.get("failed_components", [])
-        # except (json.JSONDecodeError, Exception) as e:
-        #     log_agent(f"Failed to parse errorSummary: {str(e)}", "analysisAndSolution", "ERROR")
-        
-        # if not failed_components:
-        #     return {"messages": [{"role": "system", "content": "No failed components found"}]}
-
-        question = """
-        ----
-        # For all component_name provided in "Given Finding`s Summary". 
-        # Your Goal is to provide and populate json with the following details from Documents: 
-        ## For component_type "Service" populate ONLY below values
-            -component_type
-            -component_name (this is service_name, etc)
-            -reason_for_failure
-            -health_url 
-            -start_command 
-            -db_check 
-            -db_update 
-        ## For component_type "Functionality" populate ONLY below values
-            -component_type
-            -component_name (this is funtionality name, etc)
-            -reason_for_failure
-        ----
-        Return ONLY valid JSON without code-blocks, no explanations or surrounding text or code blocks.
-        eg: { "failed_component_dtls": [{"component_type": ...},{"name": ...}] }"""
-        """ # Provide output in json format"""
-        #question= "what all file names u have"
-
-        # question = """
-        # ----
-        # # For ALL identified list of failed Components(provided in "Given Finding`s Summary". 
-        # # Your Goal is to return all data related to each failed component from Documents: 
-        # # Example of data returned for a component 
-        #     -component
-        #     -component_type
-        #     -name
-        #     -reason_for_failure
-        #     - <Other returned data for the component>
-        # ----
-        # Return ONLY valid JSON without code-blocks, no explanations or surrounding text or code blocks.
-        # eg: { "failed_component_dtls": [{"component": ...},{"component_type": ...},{"name": ...}] }"""
-
-        # Get Neo4j credentials from environment
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
 
-                      # Get model from environment
-        model = os.getenv("ANALYSIS_MODEL", ANALYSIS_MODEL)
-        
-  
-        # Use "vector" mode which supports document filtering
-        # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
-        chat_mode = CHAT_DEFAULT_MODE
-        
-
-        # Initialize accumulators for all failed components
-        all_answer_messages = []
-        all_nodedetails = []
-        all_sources = []
-        all_entities = []
-        combined_model = ""
-        combined_total_tokens = 0
-        combined_response_time = 0
-        
-        # Clear chat session once before the loop
-        clear_data = {
-            'session_id': 'agent_session'
-        }
-        
-        clear_response = requests.post(
-            f"{API_BASE_URL}/clear_chat_bot",
-            data=clear_data,
-                timeout=900
-        )
-        clear_response.raise_for_status()
-        log_agent("Chat session cleared", "analysisAndSolution")
-        
-        # Call chat_bot API for each failed_component
         component_name = component.get("component_name", "unknown")
         component_type = component.get("component_type", "unknown")
         reason_for_failure = component.get("reason_for_failure", "unknown")
         
         log_agent(f"Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
         
-        chat_data = {
-            'uri': neo4j_uri,
-            'userName': neo4j_username,
-            'password': neo4j_password,
-            'database': neo4j_database,
-            'model': "",
-            'question': "---- ## Goal: "+question+
-                        "\n----## Given Finding's Summary: "+json.dumps([component]),
-            'document_names': json.dumps(document_names),
-            'session_id': 'agent_session',
-            'mode': chat_mode,
-            'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
-            'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
-        }
+        query = """
+        MATCH (service:Service {id: $component_name})-[r1]->(n), 
+              (chunk:Chunk {fileName: "sourceOfTruth_text.txt"})-[r2]->(n) 
+        RETURN service, r1, n
+        """
+
+        neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
+        log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
         
-        log_agent(f"Calling chat_bot API for {component_name} with mode: {chat_mode}", "analysisAndSolution")
-        
-        chat_response = requests.post(
-            f"{API_BASE_URL}/chat_bot",
-            data=chat_data,
-                timeout=900
-        )
-        chat_response.raise_for_status()
-        chat_result = chat_response.json()
-        log_agent(f"chat_bot response for {component_name}: {chat_result}", "analysisAndSolution")
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result,"service")
+        log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
         
         # Extract fields from chat_bot response
         answer_message = ""
@@ -1004,56 +766,64 @@ def analysisAndSolution(state: Component):
         total_tokens = 0
         response_time = 0
         
-        if chat_result.get("status") == "Success" and chat_result.get("data"):
-            data = chat_result["data"]
-            if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
-                answer_message = data["info"]["metric_details"]["answer"]
-            else:
-                answer_message = data.get("message", "")
-            if data.get("info") and data["info"].get("nodedetails"):
-                nodedetails = data["info"]["nodedetails"]
-            if data.get("info"):
-                sources = data["info"].get("sources", [])
-                entities = data["info"].get("entities", [])
-                model = data["info"].get("model", "")
-                total_tokens = data["info"].get("total_tokens", 0)
-                response_time = data["info"].get("response_time", 0)
+        # if chat_result.get("status") == "Success" and chat_result.get("data"):
+        #     data = chat_result["data"]
+        #     if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
+        #         answer_message = data["info"]["metric_details"]["answer"]
+        #     else:
+        #         answer_message = data.get("message", "")
+        #     if data.get("info") and data["info"].get("nodedetails"):
+        #         nodedetails = data["info"]["nodedetails"]
+        #     if data.get("info"):
+        #         sources = data["info"].get("sources", [])
+        #         entities = data["info"].get("entities", [])
+        #         model = data["info"].get("model", "")
+        #         total_tokens = data["info"].get("total_tokens", 0)
+        #         response_time = data["info"].get("response_time", 0)
         
-        # Accumulate results
-        # all_answer_messages.append(answer_message)
-        # all_nodedetails.append(nodedetails)
-        # all_sources.extend(sources)
-        # all_entities.extend(entities)
-        if model:
-            combined_model = model
-        combined_total_tokens += total_tokens
-        combined_response_time += response_time
+        # # Accumulate results
+        # # all_answer_messages.append(answer_message)
+        # # all_nodedetails.append(nodedetails)
+        # # all_sources.extend(sources)
+        # # all_entities.extend(entities)
+        # # if model:
+        # #     combined_model = model
+        # # combined_total_tokens += total_tokens
+        # # combined_response_time += response_time
         
-        log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
+        # # log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
         
-        # Combine all results
-        # answer_message = "\n\n---\n\n".join(all_answer_messages)
-        # nodedetails = all_nodedetails
-        # sources = all_sources
-        # entities = all_entities
-        model = combined_model
-        total_tokens = combined_total_tokens
-        response_time = combined_response_time
+        # # # Combine all results
+        # # # answer_message = "\n\n---\n\n".join(all_answer_messages)
+        # # # nodedetails = all_nodedetails
+        # # # sources = all_sources
+        # # # entities = all_entities
+        # # model = combined_model
+        # # total_tokens = combined_total_tokens
+        # # response_time = combined_response_time
         
-        log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
-        log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
-        log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
+        # # log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
+        # # log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
+        # # log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
         
-        log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
+        # # log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
+        
+        # Add component details to source_of_truth_data
+        source_of_truth_dict = json.loads(source_of_truth_data) if source_of_truth_data else {}
+        source_of_truth_dict['component_name'] = component_name
+        source_of_truth_dict['component_type'] = component_type
+        source_of_truth_dict['reason_for_failure'] = reason_for_failure
+        source_of_truth_data = json.dumps(source_of_truth_dict)
+        
         return {
-            "analysis_result": [answer_message],
+            "analysis_result": [source_of_truth_data],
             "nodedetails": [nodedetails],
             "sources": [sources],
             "entities": [entities],
             "model": model,
             "total_tokens": total_tokens,
             "response_time": response_time,
-            "messages": [{"role": "system", "content": answer_message}]
+            "messages": [{"role": "system", "content": source_of_truth_data}]
         }
     # return {"extractedErrorContext": []}       
     except Exception as e:
@@ -1097,6 +867,35 @@ def convertToMarkdown(state: AgentState):
                 services = data.get("failed_component_dtls", [])
                 if services:
                     all_failed_services.extend(services)
+                    
+                # Check for source_of_truth format with component_name, etc.
+                if "serviceName" in data or "health_status" in data or "log_level" in data or "component_name" in data:
+                    md = "## Component Analysis\n\n"
+                    
+                    # Add component details if present
+                    if "component_name" in data:
+                        md += f"**Component Name:** {data['component_name']}\n\n"
+                    if "component_type" in data:
+                        md += f"**Component Type:** {data['component_type']}\n\n"
+                    if "reason_for_failure" in data:
+                        md += f"**Reason for Failure:** {data['reason_for_failure']}\n\n"
+                    
+                    # Add other key-value pairs
+                    for key, value in data.items():
+                        if key in ['component_name', 'component_type', 'reason_for_failure']:
+                            continue
+                        title = key.replace('_', ' ').title()
+                        md += f"**{title}:**\n"
+                        if isinstance(value, list):
+                            for item in value:
+                                md += f"- {item}\n"
+                        elif value:
+                            md += f"- {value}\n"
+                        else:
+                            md += "- None\n"
+                        md += "\n"
+                    markdown_results.append(md)
+                    continue
             except (json.JSONDecodeError, Exception) as e:
                 log_agent(f"Error parsing individual result: {str(e)}", "convertToMarkdown", "ERROR")
                 markdown_results.append(result_str)
@@ -1176,13 +975,13 @@ builder.add_node("errorSummary", errorSummary)
 
 # After logs are processed, run error analysis
 ##builder.add_edge("getLogsData", "getErrors")
-##builder.add_edge("getHealthUrlData", "getErrors")
+##builder.add_edge("getHealthUrlData", "insertHealthUrlData")
 
-##builder.add_edge(START, "insertLogsData")
-##builder.add_edge(START, "insertHealthUrlData")
+#builder.add_edge(START, "insertLogsData")
+#builder.add_edge(START, "insertHealthUrlData")
 
-##builder.add_edge("insertLogsData", "getLogsErrors")
-##builder.add_edge("insertHealthUrlData", "getHealthErrors")
+#builder.add_edge("insertLogsData", "getLogsErrors")
+#builder.add_edge("insertHealthUrlData", "getHealthErrors")
 
 builder.add_edge(START, "getLogsErrors")
 builder.add_edge(START, "getHealthErrors")
@@ -1406,3 +1205,21 @@ if __name__ == "__main__":
     result = asyncio.run(run_agent(query))
     
     log_agent(f"Final Response:\n{json.dumps(result, indent=2)}", "__main__")
+
+
+
+##MATCH (service:Service)-[r1:CURRENT_STATUS]->(n:Status {id :"Stopped"}), (service)-[r2:DEPENDS_ON]->(n2)
+#RETURN service,r1,n,r2,n2
+
+#MATCH (service:Service)-[r1:CURRENT_STATUS]->(n), (service2:Service)-[r2:DEPENDS_ON]->(n2)
+#RETURN service,r1,n,r2,service2,n2
+
+#MATCH (service:Service { id:"static-webapp"})-[r1]->(n), (chunk:Chunk {fileName:"sourceOfTruth_text.txt"})-[r2]->(n) 
+#RETURN service,r1,n
+
+
+#MATCH (level:Level)-[r1:HAS_LOG]->(n), (chunk:Chunk)-[r2:HAS_ENTITY]->(level)
+#RETURN level,r1,n,chunk,r2
+
+#MATCH (level:Level)-[r1:HAS_LOG]->(n)
+#RETURN level,r1,n
