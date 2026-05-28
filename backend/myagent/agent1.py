@@ -25,56 +25,146 @@ from langchain_neo4j import Neo4jGraph
 
 
 def execute_neo4j_query(query, params=None):
+    from neo4j import GraphDatabase
+    
     neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
     neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
     neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
     
-    graph = Neo4jGraph(
-        url=neo4j_uri,
-        username=neo4j_username,
-        password=neo4j_password,
-        database=neo4j_database
-    )
-    
     print(f"Neo4j Query: {query}")
     print(f"Neo4j Params: {params}")
     
-    result = graph.query(query, params or {})
-    return result
+    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
+    
+    with driver.session(database=neo4j_database) as session:
+        result = session.run(query, params or {})
+        print("resultttttttttttttttttttttttttttt",result)
+        records = []
+        for record in result:
+            record_dict = {}
+            for key in record.keys():
+                value = record[key]
+                if hasattr(value, 'element_id'):
+                    node_labels = list(value.labels) if hasattr(value, 'labels') else []
+                    node_props = dict(value._properties) if hasattr(value, '_properties') and value._properties else dict(value.properties) if hasattr(value, 'properties') else {}
+                    record_dict[key] = {
+                        "elementId": value.element_id,
+                        "labels": node_labels,
+                        "properties": node_props
+                    }
+                elif hasattr(value, 'type'):
+                    rel_props = dict(value._properties) if hasattr(value, '_properties') and value._properties else dict(value.properties) if hasattr(value, 'properties') else {}
+                    record_dict[key] = {
+                        "elementId": value.element_id,
+                        "type": value.type,
+                        "startNodeElementId": value.start_node.element_id,
+                        "endNodeElementId": value.end_node.element_id,
+                        "properties": rel_props
+                    }
+                else:
+                    record_dict[key] = value
+            records.append({
+                "keys": record.keys(),
+                "data": record_dict
+            })
+    
+    driver.close()
+    return records
 
 
 def parse_source_of_truth_response(neo4j_query_result, type):
     result_dict = {}
+    entity_ids = []
+    relationship_ids = []
+    entitydetails = []
+    sources = set()
+    seen_entities = set()
+    
+    def extract_entity_data(entity_data, prefix=""):
+        if not entity_data or not isinstance(entity_data, dict):
+            return None
+        
+        element_id = entity_data.get("elementId", "")
+        properties = entity_data.get("properties", {})
+        labels = entity_data.get("labels", [])
+        
+        entity_id = properties.get("id", "")
+        
+        return {
+            "element_id": element_id,
+            "labels": labels,
+            "properties": properties,
+            "entity_id": entity_id,
+            "label": labels[0] if labels else "Node"
+        }
     
     for record in neo4j_query_result:
-
-        if(type=="service"):
-            service = record.get('service', {})
-            result_dict['serviceName'] = service.get('id', '')    
-        elif(type=="logs"):
-            service = record.get('level', {})
-            print("ssssssssssssssssss",service)
-            result_dict['log_level'] = service.get('id', '') 
-        elif(type=="health"):
-            service = record.get('service', {})
-            result_dict['serviceName'] = service.get('id', '')             
-#{'methodName': 'getLogsErrors', 'message': "Neo4j query result for : [{'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'database exception'}), 'n': {'id': 'database exception'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'static-3 : unhealthy'}), 'n': {'id': 'static-3 : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'app-service : unhealthy'}), 'n': {'id': 'app-service : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'File Not found exception: path /data99/user1/file123.txt'}), 'n': {'id': 'File Not found exception: path /data99/user1/file123.txt'}}]"}
-#{'methodName': 'analysisAndSolution', 'message': "Neo4j query result for app-service: [{'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'DEPENDS_ON', {'id': 'db-service'}), 'n': {'id': 'db-service'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select * from table1S where value=pending'}), 'n': {'id': 'select * from table1S where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'UPDATE_QUERY', {'id': 'update table table1S set value=init where value=pending'}), 'n': {'id': 'update table table1S set value=init where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'START_COMMAND', {'id': 'java -jar app-service.jar'}), 'n': {'id': 'java -jar app-service.jar'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select'}), 'n': {'id': 'select'}}]"}
-        r1 = record.get('r1')
-        n = record.get('n', {})
+        record_data = record.get("data", {})
+        keys = record.get("keys", [])
+        
+        service_name = ""
+        
+        for key in keys:
+            value = record_data.get(key)
+            
+            if isinstance(value, dict) and "elementId" in value:
+                entity_info = extract_entity_data(value, key)
+                
+                if entity_info and entity_info["entity_id"]:
+                    unique_key = f"{entity_info['element_id']}:{entity_info['entity_id']}"
+                    
+                    if unique_key not in seen_entities:
+                        seen_entities.add(unique_key)
+                        entity_ids.append(entity_info["entity_id"])
+                        entitydetails.append({
+                            "element_id": entity_info["element_id"],
+                            "labels": entity_info["labels"],
+                            "properties": entity_info["properties"]
+                        })
+                        sources.add(entity_info["label"])
+                    
+                    if key == "level":
+                        result_dict['log_level'] = entity_info["entity_id"]
+                    elif key == "service":
+                        if not service_name:
+                            service_name = entity_info["entity_id"]
+                            result_dict['serviceName'] = service_name
+        
+        r1 = record_data.get('r1')
+        n = record_data.get('n')
         
         if r1 and n:
-            rel_type = r1[1]
-            value = n.get('id', '')
+            rel_type = r1.get("type", "")
+            if rel_type:
+                relationship_ids.append(rel_type)
             
-            if rel_type and value:
-                if rel_type in result_dict:
-                    result_dict[rel_type].append(value)
-                else:
-                    result_dict[rel_type] = [value]
+            n_info = extract_entity_data(n)
+            if n_info and n_info["entity_id"]:
+                unique_key = f"{n_info['element_id']}:{n_info['entity_id']}"
+                
+                if unique_key not in seen_entities:
+                    seen_entities.add(unique_key)
+                    entity_ids.append(n_info["entity_id"])
+                    entitydetails.append({
+                        "element_id": n_info["element_id"],
+                        "labels": n_info["labels"],
+                        "properties": n_info["properties"]
+                    })
+                    sources.add(n_info["label"])
+                
+                if rel_type:
+                    if rel_type in result_dict:
+                        result_dict[rel_type].append(n_info["entity_id"])
+                    else:
+                        result_dict[rel_type] = [n_info["entity_id"]]
     
-    return json.dumps(result_dict)
+    return {
+        "json_data": json.dumps(result_dict),
+        "nodedetails": {"chunkdetails": [], "entitydetails": entitydetails, "communitydetails": []},
+        "sources": list(sources),
+        "entities": {"entityids": entity_ids, "relationshipids": relationship_ids}
+    }
 
 
 class FailedComponent(BaseModel):
@@ -569,7 +659,8 @@ def getLogsErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getLogsErrors")
         
-        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "logs")
+        parsed_result = parse_source_of_truth_response(neo4j_query_result, "logs")
+        source_of_truth_data = parsed_result["json_data"]
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getLogsErrors")
         
 
@@ -608,7 +699,8 @@ def getHealthErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getHealthErrors")
         
-        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "health")
+        parsed_result = parse_source_of_truth_response(neo4j_query_result, "health")
+        source_of_truth_data = parsed_result["json_data"]
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getHealthErrors")
         
 
@@ -754,14 +846,19 @@ def analysisAndSolution(state: Component):
         neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
         log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
         
-        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result,"service")
+        parsed_result = parse_source_of_truth_response(neo4j_query_result,"service")
+        source_of_truth_data = parsed_result["json_data"]
+        nodedetails = parsed_result["nodedetails"]
+        sources = parsed_result["sources"]
+        entities = parsed_result["entities"]
+        
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
+        log_agent(f"Parsed nodedetails: {nodedetails}", "analysisAndSolution")
+        log_agent(f"Parsed sources: {sources}", "analysisAndSolution")
+        log_agent(f"Parsed entities: {entities}", "analysisAndSolution")
         
         # Extract fields from chat_bot response
         answer_message = ""
-        nodedetails = {}
-        sources = []
-        entities = []
         model = ""
         total_tokens = 0
         response_time = 0
@@ -1125,13 +1222,13 @@ async def run_agent(query: str = "Check for issues with all services") -> dict:
     
     # Combine/merge nodedetails from list to object (for Details modal)
     if "nodedetails" in result and result["nodedetails"]:
-        combined_nodedetails = {"chunkdetails": [], "entitydetails": {}, "communitydetails": []}
+        combined_nodedetails = {"chunkdetails": [], "entitydetails": [], "communitydetails": []}
         for nd in result["nodedetails"]:
             if isinstance(nd, dict):
                 if nd.get("chunkdetails"):
                     combined_nodedetails["chunkdetails"].extend(nd["chunkdetails"])
                 if nd.get("entitydetails"):
-                    combined_nodedetails["entitydetails"].update(nd["entitydetails"])
+                    combined_nodedetails["entitydetails"].extend(nd["entitydetails"])
                 if nd.get("communitydetails"):
                     combined_nodedetails["communitydetails"].extend(nd["communitydetails"])
         response["nodedetails"] = combined_nodedetails
