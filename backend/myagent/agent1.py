@@ -73,7 +73,7 @@ def execute_neo4j_query(query, params=None):
     return records
 
 
-def parse_source_of_truth_response(neo4j_query_result, type):
+def parse_source_of_truth_response(neo4j_query_result, type, labelIndex):
     result_dict = {}
     entity_ids = []
     relationship_ids = []
@@ -107,10 +107,10 @@ def parse_source_of_truth_response(neo4j_query_result, type):
         
         for key in keys:
             value = record_data.get(key)
-            
+            print("keyyyyyy",key, value)
             if isinstance(value, dict) and "elementId" in value:
                 entity_info = extract_entity_data(value, key)
-                
+                print("entity_infooooooo",entity_info)
                 if entity_info and entity_info["entity_id"]:
                     unique_key = f"{entity_info['element_id']}:{entity_info['entity_id']}"
                     
@@ -158,13 +158,38 @@ def parse_source_of_truth_response(neo4j_query_result, type):
                         result_dict[rel_type].append(n_info["entity_id"])
                     else:
                         result_dict[rel_type] = [n_info["entity_id"]]
-    
+    print("result_dicttttttttttttttttttttt=",json.dumps(result_dict))
+    print("lableindexxxxx=",labelIndex)
     return {
-        "json_data": json.dumps(result_dict),
+        "json_data": json.dumps(parseJson2(neo4j_query_result, type, labelIndex)),
         "nodedetails": {"chunkdetails": [], "entitydetails": entitydetails, "communitydetails": []},
         "sources": list(sources),
         "entities": {"entityids": entity_ids, "relationshipids": relationship_ids}
     }
+
+
+def parseJson2(json, key, labelIndex=None):
+    if labelIndex is None:
+        output = []
+        for record in json:
+            data = record.get("data", {})
+            node = data.get(key, {})
+            properties = node.get("properties", {})
+            entity_id = properties.get("id", "")
+            if entity_id:
+                output.append(entity_id)
+        return output
+    else:
+        output = {}
+        for record in json:
+            data = record.get("data", {})
+            n_node = data.get("n", {})
+            labels = n_node.get("labels", [])
+            properties = n_node.get("properties", {})
+            entity_id = properties.get("id", "")
+            if labelIndex < len(labels) and entity_id:
+                output[labels[labelIndex]] = entity_id
+        return output
 
 
 class FailedComponent(BaseModel):
@@ -659,7 +684,7 @@ def getLogsErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getLogsErrors")
         
-        parsed_result = parse_source_of_truth_response(neo4j_query_result, "logs")
+        parsed_result = parse_source_of_truth_response(neo4j_query_result, "n", None)
         source_of_truth_data = parsed_result["json_data"]
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getLogsErrors")
         
@@ -699,7 +724,7 @@ def getHealthErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getHealthErrors")
         
-        parsed_result = parse_source_of_truth_response(neo4j_query_result, "health")
+        parsed_result = parse_source_of_truth_response(neo4j_query_result, "service", None)
         source_of_truth_data = parsed_result["json_data"]
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getHealthErrors")
         
@@ -760,16 +785,15 @@ def errorSummary(state: AgentState):
         try:
             llm, _, _ = get_llm(model=SUMMARY_MODEL)
 
-            goal = """Analyze each service status in stopped StoppedServices and each log ErrorLogs in below Findings to identify failed components with their UNIQUE component_name, component_type and reason_for_failure(s). Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
+            goal = """From Findings section Analyze each service in StoppedServices and each log in ErrorLogs; to identify failed components with their UNIQUE component_name, component_type and reason_for_failure(s). Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
 
             prompt = (
-            f"-----\n## Goal:\n {goal}\n"
-            f"-----\n## Fact: \n"
-            f"- Extract component names from BOTH 'StoppedServices' table AND 'ErrorLogs' messages.\n"
-            f"- If extracted component_name matches ANY name in valid_service_names list below → component_type = 'Service'.\n"
-            f"- If NOT found in valid_service_names → component_type = 'Functionality'.\n"
+            f"-----\n##Goal:\n {goal}\n"
+            f"-----\n##Rules: \n"
+            f"- Extract component_name(s) from BOTH 'StoppedServices' AND 'ErrorLogs' messages.\n"
+            f"- If extracted component_name found in valid_service_names list then only → component_type = 'Service' else component_type = 'Functionality'.\n"
             f"- valid_service_names are: {json.dumps(valid_service_names)}\n"
-            f"-----\n## Findings:\n{state['extractedErrorContext']}\n"
+            f"-----\n##Findings:\n{state['extractedErrorContext']}\n"
             )
             log_agent(f"Prompt: {prompt}", "errorSummary")
             print("prrrrrrrrrrrrrr",prompt)
@@ -835,84 +859,85 @@ def analysisAndSolution(state: Component):
         component_type = component.get("component_type", "unknown")
         reason_for_failure = component.get("reason_for_failure", "unknown")
         
-        log_agent(f"Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
-        
-        query = """
-        MATCH (service:Service {id: $component_name})-[r1]->(n), 
-              (chunk:Chunk {fileName: "sourceOfTruth_text.txt"})-[r2]->(n) 
-        RETURN service, r1, n
-        """
+        if component_type=="Service":
+            log_agent(f"Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
+            
+            query = """
+            MATCH (service:Service {id: $component_name})-[r1]->(n), 
+                (chunk:Chunk {fileName: "sourceOfTruth_text.txt"})-[r2]->(n) 
+            RETURN service, r1, n
+            """
 
-        neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
-        log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
-        
-        parsed_result = parse_source_of_truth_response(neo4j_query_result,"service")
-        source_of_truth_data = parsed_result["json_data"]
-        nodedetails = parsed_result["nodedetails"]
-        sources = parsed_result["sources"]
-        entities = parsed_result["entities"]
-        
-        log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
-        log_agent(f"Parsed nodedetails: {nodedetails}", "analysisAndSolution")
-        log_agent(f"Parsed sources: {sources}", "analysisAndSolution")
-        log_agent(f"Parsed entities: {entities}", "analysisAndSolution")
-        
-        # Extract fields from chat_bot response
-        answer_message = ""
-        model = ""
-        total_tokens = 0
-        response_time = 0
-        
-        # if chat_result.get("status") == "Success" and chat_result.get("data"):
-        #     data = chat_result["data"]
-        #     if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
-        #         answer_message = data["info"]["metric_details"]["answer"]
-        #     else:
-        #         answer_message = data.get("message", "")
-        #     if data.get("info") and data["info"].get("nodedetails"):
-        #         nodedetails = data["info"]["nodedetails"]
-        #     if data.get("info"):
-        #         sources = data["info"].get("sources", [])
-        #         entities = data["info"].get("entities", [])
-        #         model = data["info"].get("model", "")
-        #         total_tokens = data["info"].get("total_tokens", 0)
-        #         response_time = data["info"].get("response_time", 0)
-        
-        # # Accumulate results
-        # # all_answer_messages.append(answer_message)
-        # # all_nodedetails.append(nodedetails)
-        # # all_sources.extend(sources)
-        # # all_entities.extend(entities)
-        # # if model:
-        # #     combined_model = model
-        # # combined_total_tokens += total_tokens
-        # # combined_response_time += response_time
-        
-        # # log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
-        
-        # # # Combine all results
-        # # # answer_message = "\n\n---\n\n".join(all_answer_messages)
-        # # # nodedetails = all_nodedetails
-        # # # sources = all_sources
-        # # # entities = all_entities
-        # # model = combined_model
-        # # total_tokens = combined_total_tokens
-        # # response_time = combined_response_time
-        
-        # # log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
-        # # log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
-        # # log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
-        
-        # # log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
-        
-        # Add component details to source_of_truth_data
-        source_of_truth_dict = json.loads(source_of_truth_data) if source_of_truth_data else {}
-        source_of_truth_dict['component_name'] = component_name
-        source_of_truth_dict['component_type'] = component_type
-        source_of_truth_dict['reason_for_failure'] = reason_for_failure
-        source_of_truth_data = json.dumps(source_of_truth_dict)
-        
-        return {
+            neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
+            log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
+            
+            parsed_result = parse_source_of_truth_response(neo4j_query_result,"n",0)
+            source_of_truth_data = parsed_result["json_data"]
+            nodedetails = parsed_result["nodedetails"]
+            sources = parsed_result["sources"]
+            entities = parsed_result["entities"]
+            
+            log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
+            log_agent(f"Parsed nodedetails: {nodedetails}", "analysisAndSolution")
+            log_agent(f"Parsed sources: {sources}", "analysisAndSolution")
+            log_agent(f"Parsed entities: {entities}", "analysisAndSolution")
+            
+            # Extract fields from chat_bot response
+            answer_message = ""
+            model = ""
+            total_tokens = 0
+            response_time = 0
+            
+            # if chat_result.get("status") == "Success" and chat_result.get("data"):
+            #     data = chat_result["data"]
+            #     if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
+            #         answer_message = data["info"]["metric_details"]["answer"]
+            #     else:
+            #         answer_message = data.get("message", "")
+            #     if data.get("info") and data["info"].get("nodedetails"):
+            #         nodedetails = data["info"]["nodedetails"]
+            #     if data.get("info"):
+            #         sources = data["info"].get("sources", [])
+            #         entities = data["info"].get("entities", [])
+            #         model = data["info"].get("model", "")
+            #         total_tokens = data["info"].get("total_tokens", 0)
+            #         response_time = data["info"].get("response_time", 0)
+            
+            # # Accumulate results
+            # # all_answer_messages.append(answer_message)
+            # # all_nodedetails.append(nodedetails)
+            # # all_sources.extend(sources)
+            # # all_entities.extend(entities)
+            # # if model:
+            # #     combined_model = model
+            # # combined_total_tokens += total_tokens
+            # # combined_response_time += response_time
+            
+            # # log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
+            
+            # # # Combine all results
+            # # # answer_message = "\n\n---\n\n".join(all_answer_messages)
+            # # # nodedetails = all_nodedetails
+            # # # sources = all_sources
+            # # # entities = all_entities
+            # # model = combined_model
+            # # total_tokens = combined_total_tokens
+            # # response_time = combined_response_time
+            
+            # # log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
+            # # log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
+            # # log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
+            
+            # # log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
+            
+            # Add component details to source_of_truth_data
+            source_of_truth_dict = json.loads(source_of_truth_data) if source_of_truth_data else {}
+            source_of_truth_dict['component_name'] = component_name
+            source_of_truth_dict['component_type'] = component_type
+            source_of_truth_dict['reason_for_failure'] = reason_for_failure
+            source_of_truth_data = json.dumps(source_of_truth_dict)
+
+            return {
             "analysis_result": [source_of_truth_data],
             "nodedetails": [nodedetails],
             "sources": [sources],
@@ -922,9 +947,11 @@ def analysisAndSolution(state: Component):
             "response_time": response_time,
             "messages": [{"role": "system", "content": source_of_truth_data}]
         }
+        else:
+            log_agent(f"Skipping Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
     # return {"extractedErrorContext": []}       
     except Exception as e:
-        log_agent(f"Error in getErrors: {str(e)}", "analysisAndSolution", "ERROR", traceback.format_exc())
+        log_agent(f"Error in analysisAndSolution: {str(e)}", "analysisAndSolution", "ERROR", traceback.format_exc())
         log_agent("analysisAndSolution node exiting with error", "analysisAndSolution", "ERROR")
         return {
             "extractedErrorContext": {},
