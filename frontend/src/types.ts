@@ -239,7 +239,7 @@ export type ResponseMode = {
   cypher_query?: string;
   nodeDetails?: nodeDetailsProps;
   chunk_ids?: string[];
-  graphonly_entities?: [];
+  graphonly_entities?: any[];
   error?: string;
   entities?: string[];
   metric_question?: string;
@@ -498,7 +498,7 @@ export interface chatInfoMessage extends Partial<Messages> {
   total_tokens: number;
   mode: string;
   cypher_query?: string;
-  graphonly_entities: [];
+  graphonly_entities: any[];
   error: string;
   entities_ids: string[];
   nodeDetails: nodeDetailsProps;
@@ -825,7 +825,7 @@ export type ChunkProps = {
 export type EntitiesProps = {
   loading: boolean;
   mode: string;
-  graphonly_entities: [];
+  graphonly_entities: any[];
   infoEntities: Entity[];
 };
 
@@ -1023,7 +1023,7 @@ export interface GraphViewHandlerProps {
   label?: string;
   viewType?: string;
   buttonLabel: string;
-  graphonly_entities?: [];
+  graphonly_entities?: any[];
   entityInfo?: Entity[];
   mode?: string;
 }

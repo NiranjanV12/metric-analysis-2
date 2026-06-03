@@ -1,28 +1,89 @@
 import logging
 from langchain_core.documents import Document
 import os
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
-from langchain_google_vertexai import ChatVertexAI
-from langchain_groq import ChatGroq
-from langchain_google_vertexai import HarmBlockThreshold, HarmCategory
+from langchain_litellm import ChatLiteLLM
 from langchain_experimental.graph_transformers.diffbot import DiffbotGraphTransformer
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_experimental.graph_transformers.llm import _Graph
-from langchain_anthropic import ChatAnthropic
-from langchain_fireworks import ChatFireworks
-from langchain_aws import ChatBedrock
-from langchain_community.chat_models import ChatOllama
-import boto3
-import google.auth
 from src.shared.constants import ADDITIONAL_INSTRUCTIONS
 from src.shared.llm_graph_builder_exception import LLMGraphBuilderException
 import re
 from typing import List
 from langchain_core.callbacks.manager import CallbackManager
-from src.shared.common_fn import UniversalTokenUsageHandler,get_value_from_env
+from src.shared.common_fn import UniversalTokenUsageHandler, get_value_from_env
+
+_OLD_MODEL_MAP = {
+    "GPT_4O": "openai/gpt-4o",
+    "GPT_4O_MINI": "openai/gpt-4o-mini",
+    "GPT_4": "openai/gpt-4",
+    "GPT_3_5_TURBO": "openai/gpt-3.5-turbo",
+    "GPT_3_5_TURBO_16K": "openai/gpt-3.5-turbo-16k",
+    "GPT_5_MINI": "openai/gpt-5-mini",
+    "CLAUDE_3_5_SONNET_20241022": "anthropic/claude-3-5-sonnet-20241022",
+    "CLAUDE_3_5_SONNET": "anthropic/claude-3-5-sonnet-20240620",
+    "CLAUDE_3_OPUS_20240229": "anthropic/claude-3-opus-20240229",
+    "CLAUDE_3_HAIKU_20240307": "anthropic/claude-3-haiku-20240307",
+    "GEMINI_2_5_FLASH": "vertex_ai/gemini-2.5-flash",
+    "GEMINI_2_5_PRO": "vertex_ai/gemini-2.5-pro",
+    "GEMINI_1_5_FLASH": "vertex_ai/gemini-1.5-flash",
+    "GEMINI_1_5_PRO": "vertex_ai/gemini-1.5-pro",
+}
+
+
+def _resolve_litellm_model(model_key: str, env_value: str) -> str:
+    """Resolve a LiteLLM model string from an env var value.
+
+    Supports two formats:
+      - New: "openai/gpt-4o" (already a LiteLLM model string)
+      - Old: "gpt-4o,sk-xxx" or "model_name,api_key" (comma-separated, possibly with API key)
+
+    For old format, the model name is mapped to a LiteLLM provider-prefixed string
+    and the API key is set as an environment variable.
+    """
+    if "/" in env_value:
+        return env_value.strip()
+
+    parts = env_value.split(",")
+    raw_model = parts[0].strip()
+
+    api_key = parts[1].strip() if len(parts) > 1 else None
+    if api_key:
+        if "ANTHROPIC" in model_key:
+            os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+        elif "GROQ" in model_key:
+            os.environ.setdefault("GROQ_API_KEY", api_key)
+        else:
+            os.environ.setdefault("OPENAI_API_KEY", api_key)
+
+    if model_key in _OLD_MODEL_MAP:
+        return _OLD_MODEL_MAP[model_key]
+
+    if "GEMINI" in model_key or "VERTEX" in model_key:
+        return f"vertex_ai/{raw_model}"
+    if "ANTHROPIC" in model_key or "CLAUDE" in model_key:
+        return f"anthropic/{raw_model}"
+    if "BEDROCK" in model_key:
+        return f"bedrock/{raw_model}"
+    if "GROQ" in model_key:
+        return f"groq/{raw_model}"
+    if "OLLAMA" in model_key:
+        return f"ollama/{raw_model}"
+    if "AZURE" in model_key:
+        return f"azure/{raw_model}"
+
+    return f"openai/{raw_model}"
+
 
 def get_llm(model: str):
-    """Retrieve the specified language model based on the model name."""
+    """Retrieve the specified language model based on the model name.
+
+    The LLM_MODEL_CONFIG_<MODEL> env var should contain a LiteLLM model string,
+    e.g. "openai/gpt-4o", "vertex_ai/gemini-2.5-flash", "anthropic/claude-3-5-sonnet".
+
+    Legacy format "model_name,api_key" is also supported and auto-converted.
+
+    For Diffbot, the env var format is: "diffbot,<api_key>"
+    """
     model = model.upper().replace('.', '_').strip()
     env_key = f"LLM_MODEL_CONFIG_{model}"
     env_value = get_value_from_env(env_key)
@@ -36,102 +97,22 @@ def get_llm(model: str):
     callback_handler = UniversalTokenUsageHandler()
     callback_manager = CallbackManager([callback_handler])
     try:
-        if "GEMINI" in model:
-            model_name = env_value
-            credentials, project_id = google.auth.default()
-            llm = ChatVertexAI(
-                model_name=model_name,
-                credentials=credentials,
-                project=project_id,
-                temperature=0,
-                callbacks=callback_manager,
-                safety_settings={
-                    HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                },
-            
-            )
-        elif "OPENAI" in model:
-            model_name, api_key = env_value.split(",")
-            if "MINI" in model:
-                llm= ChatOpenAI(
-                api_key=api_key,
-                model=model_name,
-                callbacks=callback_manager,
-                )
-            else:
-                llm = ChatOpenAI(
-                api_key=api_key,
-                model=model_name,
-                temperature=0,
-                callbacks=callback_manager,
-                )
-
-        elif "AZURE" in model:
-            model_name, api_endpoint, api_key, api_version = env_value.split(",")
-            llm = AzureChatOpenAI(
-                api_key=api_key,
-                azure_endpoint=api_endpoint,
-                azure_deployment=model_name,  # takes precedence over model parameter
-                api_version=api_version,
-                temperature=0,
-                max_tokens=None,
-                timeout=None,
-                callbacks=callback_manager,
-            )
-
-        elif "ANTHROPIC" in model:
-            model_name, api_key = env_value.split(",")
-            llm = ChatAnthropic(
-                api_key=api_key, model=model_name, temperature=0, timeout=None,callbacks=callback_manager, 
-            )
-
-        elif "FIREWORKS" in model:
-            model_name, api_key = env_value.split(",")
-            llm = ChatFireworks(api_key=api_key, model=model_name,callbacks=callback_manager)
-
-        elif "GROQ" in model:
-            model_name, base_url, api_key = env_value.split(",")
-            llm = ChatGroq(api_key=api_key, model_name=model_name, temperature=0,callbacks=callback_manager)
-
-        elif "BEDROCK" in model:
-            model_name, aws_access_key, aws_secret_key, region_name = env_value.split(",")
-            bedrock_client = boto3.client(
-                service_name="bedrock-runtime",
-                region_name=region_name,
-                aws_access_key_id=aws_access_key,
-                aws_secret_access_key=aws_secret_key,
-            )
-
-            llm = ChatBedrock(
-                client=bedrock_client,region_name=region_name, model_id=model_name, model_kwargs=dict(temperature=0),callbacks=callback_manager, 
-            )
-
-        elif "OLLAMA" in model:
-            model_name, base_url = env_value.split(",")
-            llm = ChatOllama(base_url=base_url, model=model_name,callbacks=callback_manager)
-
-        elif "DIFFBOT" in model:
-            #model_name = "diffbot"
+        if "DIFFBOT" in model:
             model_name, api_key = env_value.split(",")
             llm = DiffbotGraphTransformer(
                 diffbot_api_key=api_key,
                 extract_types=["entities", "facts"],
             )
             callback_handler = None
-        
-        else: 
-            model_name, api_endpoint, api_key = env_value.split(",")
-            llm = ChatOpenAI(
-                api_key=api_key,
-                base_url=api_endpoint,
-                model=model_name,
+        else:
+            litellm_model = _resolve_litellm_model(model, env_value)
+            logging.info(f"Resolved LiteLLM model: {litellm_model}")
+            llm = ChatLiteLLM(
+                model=litellm_model,
                 temperature=0,
                 callbacks=callback_manager,
             )
+            model_name = litellm_model
     except Exception as e:
         err = f"Error while creating LLM '{model}': {str(e)}"
         logging.error(err)
@@ -202,7 +183,7 @@ async def get_graph_document_list(
                 supports_structured_output = True
             except Exception:
                 supports_structured_output = False
-            if supports_structured_output and not isinstance(llm, ChatGroq):
+            if supports_structured_output:
                 logging.info("LLM supports structured output; including descriptions in graph")
                 node_properties = ["description"]
                 relationship_properties = ["description"]

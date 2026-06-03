@@ -24,171 +24,55 @@ from langchain_neo4j import Neo4jGraph
 
 
 def execute_neo4j_query(query, params=None):
-    from neo4j import GraphDatabase
-    
     neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
     neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
     neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
     
+    graph = Neo4jGraph(
+        url=neo4j_uri,
+        username=neo4j_username,
+        password=neo4j_password,
+        database=neo4j_database
+    )
+    
     print(f"Neo4j Query: {query}")
     print(f"Neo4j Params: {params}")
     
-    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
-    
-    with driver.session(database=neo4j_database) as session:
-        result = session.run(query, params or {})
-        print("resultttttttttttttttttttttttttttt",result)
-        records = []
-        for record in result:
-            record_dict = {}
-            for key in record.keys():
-                value = record[key]
-                if hasattr(value, 'element_id'):
-                    node_labels = list(value.labels) if hasattr(value, 'labels') else []
-                    node_props = dict(value._properties) if hasattr(value, '_properties') and value._properties else dict(value.properties) if hasattr(value, 'properties') else {}
-                    record_dict[key] = {
-                        "elementId": value.element_id,
-                        "labels": node_labels,
-                        "properties": node_props
-                    }
-                elif hasattr(value, 'type'):
-                    rel_props = dict(value._properties) if hasattr(value, '_properties') and value._properties else dict(value.properties) if hasattr(value, 'properties') else {}
-                    record_dict[key] = {
-                        "elementId": value.element_id,
-                        "type": value.type,
-                        "startNodeElementId": value.start_node.element_id,
-                        "endNodeElementId": value.end_node.element_id,
-                        "properties": rel_props
-                    }
-                else:
-                    record_dict[key] = value
-            records.append({
-                "keys": record.keys(),
-                "data": record_dict
-            })
-    
-    driver.close()
-    return records
+    result = graph.query(query, params or {})
+    return result
 
 
-def parse_source_of_truth_response(neo4j_query_result, type, labelIndex):
+def parse_source_of_truth_response(neo4j_query_result, type):
     result_dict = {}
-    entity_ids = []
-    relationship_ids = []
-    entitydetails = []
-    sources = set()
-    seen_entities = set()
-    
-    def extract_entity_data(entity_data, prefix=""):
-        if not entity_data or not isinstance(entity_data, dict):
-            return None
-        
-        element_id = entity_data.get("elementId", "")
-        properties = entity_data.get("properties", {})
-        labels = entity_data.get("labels", [])
-        
-        entity_id = properties.get("id", "")
-        
-        return {
-            "element_id": element_id,
-            "labels": labels,
-            "properties": properties,
-            "entity_id": entity_id,
-            "label": labels[0] if labels else "Node"
-        }
     
     for record in neo4j_query_result:
-        record_data = record.get("data", {})
-        keys = record.get("keys", [])
-        
-        service_name = ""
-        
-        for key in keys:
-            value = record_data.get(key)
-            print("keyyyyyy",key, value)
-            if isinstance(value, dict) and "elementId" in value:
-                entity_info = extract_entity_data(value, key)
-                print("entity_infooooooo",entity_info)
-                if entity_info and entity_info["entity_id"]:
-                    unique_key = f"{entity_info['element_id']}:{entity_info['entity_id']}"
-                    
-                    if unique_key not in seen_entities:
-                        seen_entities.add(unique_key)
-                        entity_ids.append(entity_info["entity_id"])
-                        entitydetails.append({
-                            "element_id": entity_info["element_id"],
-                            "labels": entity_info["labels"],
-                            "properties": entity_info["properties"]
-                        })
-                        sources.add(entity_info["label"])
-                    
-                    if key == "level":
-                        result_dict['log_level'] = entity_info["entity_id"]
-                    elif key == "service":
-                        if not service_name:
-                            service_name = entity_info["entity_id"]
-                            result_dict['serviceName'] = service_name
-        
-        r1 = record_data.get('r1')
-        n = record_data.get('n')
+
+        if(type=="service"):
+            service = record.get('service', {})
+            result_dict['serviceName'] = service.get('id', '')    
+        elif(type=="logs"):
+            service = record.get('level', {})
+            result_dict['log_level'] = service.get('id', '') 
+        elif(type=="health"):
+            service = record.get('service', {})
+            result_dict['health_status'] = service.get('id', '')             
+#{'methodName': 'getLogsErrors', 'message': "Neo4j query result for : [{'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'database exception'}), 'n': {'id': 'database exception'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'static-3 : unhealthy'}), 'n': {'id': 'static-3 : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'app-service : unhealthy'}), 'n': {'id': 'app-service : unhealthy'}}, {'level': {'id': 'ERROR'}, 'r1': ({'id': 'ERROR'}, 'HAS_LOG', {'id': 'File Not found exception: path /data99/user1/file123.txt'}), 'n': {'id': 'File Not found exception: path /data99/user1/file123.txt'}}]"}
+#{'methodName': 'analysisAndSolution', 'message': "Neo4j query result for app-service: [{'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'DEPENDS_ON', {'id': 'db-service'}), 'n': {'id': 'db-service'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select * from table1S where value=pending'}), 'n': {'id': 'select * from table1S where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'UPDATE_QUERY', {'id': 'update table table1S set value=init where value=pending'}), 'n': {'id': 'update table table1S set value=init where value=pending'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'HEALTH_URL', {'id': 'http://app-service/health'}), 'n': {'id': 'http://app-service/health'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'START_COMMAND', {'id': 'java -jar app-service.jar'}), 'n': {'id': 'java -jar app-service.jar'}}, {'service': {'id': 'app-service'}, 'r1': ({'id': 'app-service'}, 'CHECK_QUERY', {'id': 'select'}), 'n': {'id': 'select'}}]"}
+        r1 = record.get('r1')
+        n = record.get('n', {})
         
         if r1 and n:
-            rel_type = r1.get("type", "")
-            if rel_type:
-                relationship_ids.append(rel_type)
+            rel_type = r1[1]
+            value = n.get('id', '')
             
-            n_info = extract_entity_data(n)
-            if n_info and n_info["entity_id"]:
-                unique_key = f"{n_info['element_id']}:{n_info['entity_id']}"
-                
-                if unique_key not in seen_entities:
-                    seen_entities.add(unique_key)
-                    entity_ids.append(n_info["entity_id"])
-                    entitydetails.append({
-                        "element_id": n_info["element_id"],
-                        "labels": n_info["labels"],
-                        "properties": n_info["properties"]
-                    })
-                    sources.add(n_info["label"])
-                
-                if rel_type:
-                    if rel_type in result_dict:
-                        result_dict[rel_type].append(n_info["entity_id"])
-                    else:
-                        result_dict[rel_type] = [n_info["entity_id"]]
-    print("result_dicttttttttttttttttttttt=",json.dumps(result_dict))
-    print("lableindexxxxx=",labelIndex)
-    return {
-        "json_data": json.dumps(parseJson2(neo4j_query_result, type, labelIndex)),
-        "nodedetails": {"chunkdetails": [], "entitydetails": entitydetails, "communitydetails": []},
-        "sources": list(sources),
-        "entities": {"entityids": entity_ids, "relationshipids": relationship_ids}
-    }
-
-
-def parseJson2(json, key, labelIndex=None):
-    if labelIndex is None:
-        output = []
-        for record in json:
-            data = record.get("data", {})
-            node = data.get(key, {})
-            properties = node.get("properties", {})
-            entity_id = properties.get("id", "")
-            if entity_id:
-                output.append(entity_id)
-        return output
-    else:
-        output = {}
-        for record in json:
-            data = record.get("data", {})
-            n_node = data.get("n", {})
-            labels = n_node.get("labels", [])
-            properties = n_node.get("properties", {})
-            entity_id = properties.get("id", "")
-            if labelIndex < len(labels) and entity_id:
-                output[labels[labelIndex]] = entity_id
-        return output
+            if rel_type and value:
+                if rel_type in result_dict:
+                    result_dict[rel_type].append(value)
+                else:
+                    result_dict[rel_type] = [value]
+    
+    return json.dumps(result_dict)
 
 
 class FailedComponent(BaseModel):
@@ -669,12 +553,91 @@ def getLogsErrors(state: AgentState):
     log_agent(f"Using CYPHER_MODEL: {CYPHER_MODEL}", "getLogsErrors")
 
     try:
+        # Get SERVICES_TO_MONITOR from environment
+        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
+        try:
+            services = json.loads(services_config)
+        except json.JSONDecodeError:
+            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "getLogsErrors", "ERROR")
+            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
+        
+        if not isinstance(services, list):
+            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
+        
+        # Get document names (logFilePath) from each service
+        document_names = []
+        for service in services:
+            log_file_path = service.get("logFilePath", "")
+            if log_file_path:
+                # Extract filename from path
+                file_name = os.path.basename(log_file_path)
+                document_names.append(file_name)
+        
+        if not document_names:
+            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
+        document_names=[]
+        log_agent(f"Document names for chat: {document_names}", "getLogsErrors")
+        
+        # Prepare the question for error analysis
+        #question = """Step1) Retrive ALL Messages that HAS_LOG as ERROR level. Messages containing exception,unhealthy, other errors. Make sure u include all ERROR level messages. --- Step2) Analyse them, then Count and provide details for each ERROR as output: srno, affected functionality and primary reason for failure. --- Step3) Considering each primary reason for failure identify the failed Services/Component. Provide the list of failed Component, ComponentType(ComponentType must be either Service OR Functionality), reasonForFailure. Provide output as in below format output: List of failed Components(Service/Functionality), its reason in json format."""
+        #question= """"Execute following Query : MATCH (message:Message)<-[:HAS_LOG]-(level:Level) WHERE level.id = 'ERROR' RETURN message" ---- and output the retrived messages as json list."""
+        #question= "Execute following Query : MATCH (level:Level)-[:HAS_LOG]->(message:Message) WHERE level.id = 'ERROR' RETURN level, message  ---  output the json list of level and message"
+        question= "Execute following Query : MATCH (level:Level)-[:HAS_LOG]->(message:Message) WHERE level.id = 'ERROR' RETURN level,message --- output all the result as simple markdown list of level and its message. Do not provide any explanation"
+
+        
         # Get Neo4j credentials from environment
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
+        # Get model from environment
+        model = os.getenv("CYPHER_MODEL", CYPHER_MODEL)
+        
+        # Use "vector" mode which supports document filtering
+        # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
+        chat_mode = CHAT_GRAPH_MODE
+        
+        # Call chat_bot API
+        chat_data = {
+            'uri': neo4j_uri,
+            'userName': neo4j_username,
+            'password': neo4j_password,
+            'database': neo4j_database,
+            'model': model,
+            'question': question,
+            'document_names': json.dumps(document_names),
+            'session_id': 'agent_session',
+            'mode': chat_mode,
+            'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
+            'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
+        }
+        
+        # log_agent(f"Calling chat_bot API with mode: {chat_mode}", "getLogsErrors")
+        
+        # # Clear chat session before calling chat_bot
+        # clear_data = {
+        #     'session_id': 'agent_session'
+        # }
+        
+        # clear_response = requests.post(
+        #     f"{API_BASE_URL}/clear_chat_bot",
+        #     data=clear_data,
+        #         timeout=900
+        # )
+        # clear_response.raise_for_status()
+        
+        # log_agent("Chat session cleared", "getLogsErrors")
+        
+        # # Now call chat_bot API
+        # chat_response = requests.post(
+        #     f"{API_BASE_URL}/chat_bot",
+        #     data=chat_data,
+        #         timeout=900
+        # )
+        # chat_response.raise_for_status()
+        # chat_result = chat_response.json()
+
         query = """
         MATCH (level:Level)-[r1:HAS_LOG]->(n)
         RETURN level,r1,n
@@ -683,8 +646,7 @@ def getLogsErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getLogsErrors")
         
-        parsed_result = parse_source_of_truth_response(neo4j_query_result, "n", None)
-        source_of_truth_data = parsed_result["json_data"]
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "logs")
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getLogsErrors")
         
 
@@ -707,14 +669,89 @@ def getHealthErrors(state: AgentState):
     log_agent(f"Using CYPHER_MODEL: {CYPHER_MODEL}", "getHealthErrors")
 
     try:
-         
+        # Get SERVICES_TO_MONITOR from environment
+        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
+        try:
+            services = json.loads(services_config)
+        except json.JSONDecodeError:
+            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "getHealthErrors", "ERROR")
+            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
+        
+        if not isinstance(services, list):
+            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
+        
+        # Get document names (logFilePath) from each service
+        document_names = []
+        for service in services:
+            log_file_path = service.get("logFilePath", "")
+            if log_file_path:
+                # Extract filename from path
+                file_name = os.path.basename(log_file_path)
+                document_names.append(file_name)
+        
+        if not document_names:
+            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
+        document_names=[]
+        log_agent(f"Document names for chat: {document_names}", "getHealthErrors")
+        
+        # Prepare the question for error analysis
+        #question = """Step1) Retrive ALL Messages that HAS_LOG as ERROR level. Messages containing exception,unhealthy, other errors. Make sure u include all ERROR level messages. --- Step2) Analyse them, then Count and provide details for each ERROR as output: srno, affected functionality and primary reason for failure. --- Step3) Considering each primary reason for failure identify the failed Services/Component. Provide the list of failed Component, ComponentType(ComponentType must be either Service OR Functionality), reasonForFailure. Provide output as in below format output: List of failed Components(Service/Functionality), its reason in json format."""
+        #question= "Execute following Query : MATCH (service:Service)-[:CURRENT_STATUS]->(status:Status) WHERE status.id <> 'Running' RETURN service,status --- and output the result as json list of service and its status"
+        question= "Execute following Query : MATCH (service:Service)-[:CURRENT_STATUS]->(status:Status) WHERE status.id <> 'Running' RETURN service,status --- output all the result as simple markdown list of service and its status. Do not provide any explanation"
+               
         # Get Neo4j credentials from environment
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
         
+        # Get model from environment
+        # model = os.getenv("CYPHER_MODEL", CYPHER_MODEL)
         
+        # # Use "vector" mode which supports document filtering
+        # # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
+        # chat_mode = CHAT_GRAPH_MODE
+        
+        # # Call chat_bot API
+        # chat_data = {
+        #     'uri': neo4j_uri,
+        #     'userName': neo4j_username,
+        #     'password': neo4j_password,
+        #     'database': neo4j_database,
+        #     'model': model,
+        #     'question': question,
+        #     'document_names': json.dumps(document_names),
+        #     'session_id': 'agent_session',
+        #     'mode': chat_mode,
+        #     'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
+        #     'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
+        # }
+        
+        # log_agent(f"Calling chat_bot API with mode: {chat_mode}", "getHealthErrors")
+        
+        # # Clear chat session before calling chat_bot
+        # clear_data = {
+        #     'session_id': 'agent_session'
+        # }
+        
+        # clear_response = requests.post(
+        #     f"{API_BASE_URL}/clear_chat_bot",
+        #     data=clear_data,
+        #         timeout=900
+        # )
+        # clear_response.raise_for_status()
+        
+        # log_agent("Chat session cleared", "getHealthErrors")
+        
+        # # Now call chat_bot API
+        # chat_response = requests.post(
+        #     f"{API_BASE_URL}/chat_bot",
+        #     data=chat_data,
+        #         timeout=900
+        # )
+        # chat_response.raise_for_status()
+        # chat_result = chat_response.json()
+        #chat_result=[]
         query = """
         MATCH (service:Service)-[r1:CURRENT_STATUS]->(n:Status {id :"Stopped"})
         RETURN service,r1,n
@@ -723,8 +760,7 @@ def getHealthErrors(state: AgentState):
         neo4j_query_result = execute_neo4j_query(query)
         log_agent(f"Neo4j query result for : {neo4j_query_result}", "getHealthErrors")
         
-        parsed_result = parse_source_of_truth_response(neo4j_query_result, "service", None)
-        source_of_truth_data = parsed_result["json_data"]
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result, "health")
         log_agent(f"Parsed source of truth data: {source_of_truth_data}", "getHealthErrors")
         
 
@@ -784,15 +820,16 @@ def errorSummary(state: AgentState):
         try:
             llm, _, _ = get_llm(model=SUMMARY_MODEL)
 
-            goal = """From Findings section Analyze each service in StoppedServices and each log in ErrorLogs; to identify failed components with their UNIQUE component_name, component_type and reason_for_failure(s). Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
+            goal = """Analyze the StoppedServices and ErrorLogs below Findings to identify failed components with their component_name, component_type and reason_for_failure. Respond ONLY with valid JSON in this format without code-blocks, no explanations or surrounding text: {"failed_components": [{"component_name": "...", "component_type": "...", "reason_for_failure": "..."}]}"""
 
             prompt = (
-            f"-----\n##Goal:\n {goal}\n"
-            f"-----\n##Rules: \n"
-            f"- Extract component_name(s) from BOTH 'StoppedServices' AND 'ErrorLogs' messages.\n"
-            f"- If extracted component_name found in valid_service_names list then only → component_type = 'Service' else component_type = 'Functionality'.\n"
+            f"-----\n## Goal:\n {goal}\n"
+            f"-----\n## Fact: \n"
+            f"- Extract component names from BOTH 'StoppedServices' table AND 'ErrorLogs' messages.\n"
+            f"- If extracted component_name matches ANY name in valid_service_names list below → component_type = 'Service'.\n"
+            f"- If NOT found in valid_service_names → component_type = 'Functionality'.\n"
             f"- valid_service_names are: {json.dumps(valid_service_names)}\n"
-            f"-----\n##Findings:\n{state['extractedErrorContext']}\n"
+            f"-----\n## Findings:\n{state['extractedErrorContext']}\n"
             )
             log_agent(f"Prompt: {prompt}", "errorSummary")
             print("prrrrrrrrrrrrrr",prompt)
@@ -847,96 +884,213 @@ def analysisAndSolution(state: Component):
     log_agent(f"Current MessageState: {state}", "analysisAndSolution")
 
     try:
-        component = state["component"]
+        # Get SERVICES_TO_MONITOR from environment
+        services_config = os.getenv("SERVICES_TO_MONITOR", "[]")
+        try:
+            services = json.loads(services_config)
+        except json.JSONDecodeError:
+            log_agent(f"Invalid JSON in SERVICES_TO_MONITOR: {services_config}", "analysisAndSolution", "ERROR")
+            return {"messages": [{"role": "system", "content": f"Invalid SERVICES_TO_MONITOR config"}]}
         
+        if not isinstance(services, list):
+            return {"messages": [{"role": "system", "content": "SERVICES_TO_MONITOR must be a JSON array"}]}
+        
+        # Get document names (logFilePath) from each service
+        document_names = []
+        for service in services:
+            log_file_path = service.get("logFilePath", "")
+            if log_file_path:
+                # Extract filename from path
+                file_name = os.path.basename(log_file_path)
+                document_names.append(file_name)
+        
+        if not document_names:
+            return {"messages": [{"role": "system", "content": "No log files found in SERVICES_TO_MONITOR"}]}
+        document_names=["sourceOfTruth.txt"]
+        log_agent(f"Document names for chat: {document_names}", "analysisAndSolution")
+        
+        #Prepare the question for error analysis
+        # prevMessageOut=state['messages'][-1].content
+        # log_agent(f"prevMessageOut: {prevMessageOut}", "analysisAndSolution")
+
+        #Extract JSON from prevMessageOut using LLM
+        
+        component = state["component"]
+        component.get("component_name")
+        # # Parse failed_components from extracted_json
+        # failed_components = []
+        # try:
+        #     error_summary_data = json.loads(extracted_json) if isinstance(extracted_json, str) else extracted_json
+        #     failed_components = error_summary_data.get("failed_components", [])
+        # except (json.JSONDecodeError, Exception) as e:
+        #     log_agent(f"Failed to parse errorSummary: {str(e)}", "analysisAndSolution", "ERROR")
+        
+        # if not failed_components:
+        #     return {"messages": [{"role": "system", "content": "No failed components found"}]}
+
+        question = """
+        ----
+        # For all component_name provided in "Given Finding`s Summary". 
+        # Your Goal is to provide and populate json with the following details from Documents: 
+        ## For component_type "Service" populate ONLY below values
+            -component_type
+            -component_name (this is service_name, etc)
+            -reason_for_failure
+            -health_url 
+            -start_command 
+            -db_check 
+            -db_update 
+        ## For component_type "Functionality" populate ONLY below values
+            -component_type
+            -component_name (this is funtionality name, etc)
+            -reason_for_failure
+        ----
+        Return ONLY valid JSON without code-blocks, no explanations or surrounding text or code blocks.
+        eg: { "failed_component_dtls": [{"component_type": ...},{"name": ...}] }"""
+        
+        question= """
+        Use only step1 for cypher formation and use step2 for finding result from context received from cypher response
+        
+        Step 1)
+        Execute following Generated Cypher Query : MATCH (service:Service { id:\""""+component.get("component_name")+"""\"})-[r1]->(n), (chunk:Chunk {fileName:"sourceOfTruth_text.txt"})-[r2]->(n)  RETURN service,r1,n 
+        
+        Step 2)
+        Return ONLY valid JSON without code-blocks, no explanations or surrounding text or code blocks."""  
+        
+        print("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",question)
+
         neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
         neo4j_password = os.getenv("NEO4J_PASSWORD", "neo4j123")
         neo4j_database = os.getenv("NEO4J_DATABASE", "neo4j")
 
+        #               # Get model from environment
+        # model = os.getenv("CYPHER_MODEL", CYPHER_MODEL)
+        
+  
+        # # Use "vector" mode which supports document filtering
+        # # CHAT_DEFAULT_MODE (graph_vector_fulltext) doesn't support document filtering
+        # chat_mode = CHAT_GRAPH_MODE
+        
+
+        # Initialize accumulators for all failed components
+        all_answer_messages = []
+        all_nodedetails = []
+        all_sources = []
+        all_entities = []
+        combined_model = ""
+        combined_total_tokens = 0
+        combined_response_time = 0
+        
+        # # Clear chat session once before the loop
+        # clear_data = {
+        #     'session_id': 'agent_session'
+        # }
+        
+        # clear_response = requests.post(
+        #     f"{API_BASE_URL}/clear_chat_bot",
+        #     data=clear_data,
+        #         timeout=900
+        # )
+        # clear_response.raise_for_status()
+        # log_agent("Chat session cleared", "analysisAndSolution")
+        
+        # Call chat_bot API for each failed_component
         component_name = component.get("component_name", "unknown")
         component_type = component.get("component_type", "unknown")
         reason_for_failure = component.get("reason_for_failure", "unknown")
         
-        if component_type=="Service":
-            log_agent(f"Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
-            
-            query = """
-            MATCH (service:Service {id: $component_name})-[r1]->(n), 
-                (chunk:Chunk {fileName: "sourceOfTruth_text.txt"})-[r2]->(n) 
-            RETURN service, r1, n
-            """
+        log_agent(f"Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
+        
+        # chat_data = {
+        #     'uri': neo4j_uri,
+        #     'userName': neo4j_username,
+        #     'password': neo4j_password,
+        #     'database': neo4j_database,
+        #     'model': "",
+        #     'question': "---- ## Goal: "+question+
+        #                 "\n----## Given Finding's Summary: "+json.dumps([component]),
+        #     'document_names': json.dumps(document_names),
+        #     'session_id': 'agent_session',
+        #     'mode': chat_mode,
+        #     'embedding_provider': os.getenv("EMBEDDING_PROVIDER") or "sentence-transformer",
+        #     'embedding_model': os.getenv("EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
+        # }
+        
+        # log_agent(f"Calling chat_bot API for {component_name} with mode: {chat_mode}", "analysisAndSolution")
+        
+        # chat_response = requests.post(
+        #     f"{API_BASE_URL}/chat_bot",
+        #     data=chat_data,
+        #         timeout=900
+        # )
+        # chat_response.raise_for_status()
+        # chat_result = chat_response.json()
+        # log_agent(f"chat_bot response for {component_name}: {chat_result}", "analysisAndSolution")
+        
+        query = """
+        MATCH (service:Service {id: $component_name})-[r1]->(n), 
+              (chunk:Chunk {fileName: "sourceOfTruth_text.txt"})-[r2]->(n) 
+        RETURN service, r1, n
+        """
 
-            neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
-            log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
-            
-            parsed_result = parse_source_of_truth_response(neo4j_query_result,"n",0)
-            source_of_truth_data = parsed_result["json_data"]
-            nodedetails = parsed_result["nodedetails"]
-            sources = parsed_result["sources"]
-            entities = parsed_result["entities"]
-            
-            log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
-            log_agent(f"Parsed nodedetails: {nodedetails}", "analysisAndSolution")
-            log_agent(f"Parsed sources: {sources}", "analysisAndSolution")
-            log_agent(f"Parsed entities: {entities}", "analysisAndSolution")
-            
-            # Extract fields from chat_bot response
-            answer_message = ""
-            model = ""
-            total_tokens = 0
-            response_time = 0
-            
-            # if chat_result.get("status") == "Success" and chat_result.get("data"):
-            #     data = chat_result["data"]
-            #     if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
-            #         answer_message = data["info"]["metric_details"]["answer"]
-            #     else:
-            #         answer_message = data.get("message", "")
-            #     if data.get("info") and data["info"].get("nodedetails"):
-            #         nodedetails = data["info"]["nodedetails"]
-            #     if data.get("info"):
-            #         sources = data["info"].get("sources", [])
-            #         entities = data["info"].get("entities", [])
-            #         model = data["info"].get("model", "")
-            #         total_tokens = data["info"].get("total_tokens", 0)
-            #         response_time = data["info"].get("response_time", 0)
-            
-            # # Accumulate results
-            # # all_answer_messages.append(answer_message)
-            # # all_nodedetails.append(nodedetails)
-            # # all_sources.extend(sources)
-            # # all_entities.extend(entities)
-            # # if model:
-            # #     combined_model = model
-            # # combined_total_tokens += total_tokens
-            # # combined_response_time += response_time
-            
-            # # log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
-            
-            # # # Combine all results
-            # # # answer_message = "\n\n---\n\n".join(all_answer_messages)
-            # # # nodedetails = all_nodedetails
-            # # # sources = all_sources
-            # # # entities = all_entities
-            # # model = combined_model
-            # # total_tokens = combined_total_tokens
-            # # response_time = combined_response_time
-            
-            # # log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
-            # # log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
-            # # log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
-            
-            # # log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
-            
-            # Add component details to source_of_truth_data
-            source_of_truth_dict = json.loads(source_of_truth_data) if source_of_truth_data else {}
-            source_of_truth_dict['component_name'] = component_name
-            source_of_truth_dict['component_type'] = component_type
-            source_of_truth_dict['reason_for_failure'] = reason_for_failure
-            source_of_truth_data = json.dumps(source_of_truth_dict)
-
-            return {
+        neo4j_query_result = execute_neo4j_query(query, {"component_name": component_name})
+        log_agent(f"Neo4j query result for {component_name}: {neo4j_query_result}", "analysisAndSolution")
+        
+        source_of_truth_data = parse_source_of_truth_response(neo4j_query_result,"service")
+        log_agent(f"Parsed source of truth data: {source_of_truth_data}", "analysisAndSolution")
+        
+        # Extract fields from chat_bot response
+        answer_message = ""
+        nodedetails = {}
+        sources = []
+        entities = []
+        model = ""
+        total_tokens = 0
+        response_time = 0
+        
+        # if chat_result.get("status") == "Success" and chat_result.get("data"):
+        #     data = chat_result["data"]
+        #     if data.get("info") and data["info"].get("metric_details") and data["info"]["metric_details"].get("answer"):
+        #         answer_message = data["info"]["metric_details"]["answer"]
+        #     else:
+        #         answer_message = data.get("message", "")
+        #     if data.get("info") and data["info"].get("nodedetails"):
+        #         nodedetails = data["info"]["nodedetails"]
+        #     if data.get("info"):
+        #         sources = data["info"].get("sources", [])
+        #         entities = data["info"].get("entities", [])
+        #         model = data["info"].get("model", "")
+        #         total_tokens = data["info"].get("total_tokens", 0)
+        #         response_time = data["info"].get("response_time", 0)
+        
+        # Accumulate results
+        # all_answer_messages.append(answer_message)
+        # all_nodedetails.append(nodedetails)
+        # all_sources.extend(sources)
+        # all_entities.extend(entities)
+        # if model:
+        #     combined_model = model
+        # combined_total_tokens += total_tokens
+        # combined_response_time += response_time
+        
+        # log_agent(f"Processed {component_name}: answer_message={answer_message[:100]}...", "analysisAndSolution")
+        
+        # # Combine all results
+        # # answer_message = "\n\n---\n\n".join(all_answer_messages)
+        # # nodedetails = all_nodedetails
+        # # sources = all_sources
+        # # entities = all_entities
+        # model = combined_model
+        # total_tokens = combined_total_tokens
+        # response_time = combined_response_time
+        
+        # log_agent(f"analysisAndSolution combined answer_message response: {answer_message[:200]}...", "analysisAndSolution")
+        # log_agent(f"analysisAndSolution combined nodedetails: {nodedetails}", "analysisAndSolution")
+        # log_agent(f"analysisAndSolution combined sources: {sources}", "analysisAndSolution")
+        
+        # log_agent("analysisAndSolution node exiting successfully", "analysisAndSolution")
+        return {
             "analysis_result": [source_of_truth_data],
             "nodedetails": [nodedetails],
             "sources": [sources],
@@ -946,11 +1100,9 @@ def analysisAndSolution(state: Component):
             "response_time": response_time,
             "messages": [{"role": "system", "content": source_of_truth_data}]
         }
-        else:
-            log_agent(f"Skipping Processing component {state["component_idx"]+1}: {component_name}", "analysisAndSolution")
     # return {"extractedErrorContext": []}       
     except Exception as e:
-        log_agent(f"Error in analysisAndSolution: {str(e)}", "analysisAndSolution", "ERROR", traceback.format_exc())
+        log_agent(f"Error in getErrors: {str(e)}", "analysisAndSolution", "ERROR", traceback.format_exc())
         log_agent("analysisAndSolution node exiting with error", "analysisAndSolution", "ERROR")
         return {
             "extractedErrorContext": {},
@@ -990,35 +1142,6 @@ def convertToMarkdown(state: AgentState):
                 services = data.get("failed_component_dtls", [])
                 if services:
                     all_failed_services.extend(services)
-                    
-                # Check for source_of_truth format with component_name, etc.
-                if "serviceName" in data or "health_status" in data or "log_level" in data or "component_name" in data:
-                    md = "## Component Analysis\n\n"
-                    
-                    # Add component details if present
-                    if "component_name" in data:
-                        md += f"**Component Name:** {data['component_name']}\n\n"
-                    if "component_type" in data:
-                        md += f"**Component Type:** {data['component_type']}\n\n"
-                    if "reason_for_failure" in data:
-                        md += f"**Reason for Failure:** {data['reason_for_failure']}\n\n"
-                    
-                    # Add other key-value pairs
-                    for key, value in data.items():
-                        if key in ['component_name', 'component_type', 'reason_for_failure']:
-                            continue
-                        title = key.replace('_', ' ').title()
-                        md += f"**{title}:**\n"
-                        if isinstance(value, list):
-                            for item in value:
-                                md += f"- {item}\n"
-                        elif value:
-                            md += f"- {value}\n"
-                        else:
-                            md += "- None\n"
-                        md += "\n"
-                    markdown_results.append(md)
-                    continue
             except (json.JSONDecodeError, Exception) as e:
                 log_agent(f"Error parsing individual result: {str(e)}", "convertToMarkdown", "ERROR")
                 markdown_results.append(result_str)
@@ -1100,14 +1223,14 @@ builder.add_node("errorSummary", errorSummary)
 ##builder.add_edge("getLogsData", "getErrors")
 ##builder.add_edge("getHealthUrlData", "insertHealthUrlData")
 
-#builder.add_edge(START, "insertLogsData")
-#builder.add_edge(START, "insertHealthUrlData")
+builder.add_edge(START, "insertLogsData")
+builder.add_edge(START, "insertHealthUrlData")
 
-#builder.add_edge("insertLogsData", "getLogsErrors")
-#builder.add_edge("insertHealthUrlData", "getHealthErrors")
+builder.add_edge("insertLogsData", "getLogsErrors")
+builder.add_edge("insertHealthUrlData", "getHealthErrors")
 
-builder.add_edge(START, "getLogsErrors")
-builder.add_edge(START, "getHealthErrors")
+#builder.add_edge(START, "getLogsErrors")
+#builder.add_edge(START, "getHealthErrors")
 builder.add_edge("getLogsErrors", "errorSummary")
 builder.add_edge("getHealthErrors", "errorSummary")
 
@@ -1248,13 +1371,13 @@ async def run_agent(query: str = "Check for issues with all services") -> dict:
     
     # Combine/merge nodedetails from list to object (for Details modal)
     if "nodedetails" in result and result["nodedetails"]:
-        combined_nodedetails = {"chunkdetails": [], "entitydetails": [], "communitydetails": []}
+        combined_nodedetails = {"chunkdetails": [], "entitydetails": {}, "communitydetails": []}
         for nd in result["nodedetails"]:
             if isinstance(nd, dict):
                 if nd.get("chunkdetails"):
                     combined_nodedetails["chunkdetails"].extend(nd["chunkdetails"])
                 if nd.get("entitydetails"):
-                    combined_nodedetails["entitydetails"].extend(nd["entitydetails"])
+                    combined_nodedetails["entitydetails"].update(nd["entitydetails"])
                 if nd.get("communitydetails"):
                     combined_nodedetails["communitydetails"].extend(nd["communitydetails"])
         response["nodedetails"] = combined_nodedetails
@@ -1296,8 +1419,6 @@ async def run_agent(query: str = "Check for issues with all services") -> dict:
     if "display_markdown" in result:
         response["display_markdown"] = result["display_markdown"]
     
-    print(response.get("display_markdown", ""))
-
     return response
 
 

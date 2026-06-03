@@ -77,7 +77,7 @@ const Chatbot: FC<ChatbotProps> = (props) => {
   const [tokensUsed, setTokensUsed] = useState<number>(0);
   const [cypherQuery, setcypherQuery] = useState<string>('');
   const [chatsMode, setChatsMode] = useState<string>(chatModeLables['graph+vector+fulltext']);
-  const [graphEntitites, setgraphEntitites] = useState<[]>([]);
+  const [graphEntitites, setgraphEntitites] = useState<any[]>([]);
   const [messageError, setmessageError] = useState<string>('');
   const [entitiesModal, setEntitiesModal] = useState<string[]>([]);
   const [nodeDetailsModal, setNodeDetailsModal] = useState<nodeDetailsProps>({});

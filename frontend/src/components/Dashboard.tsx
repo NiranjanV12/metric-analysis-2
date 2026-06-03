@@ -752,8 +752,6 @@ const Dashboard: React.FC = () => {
               isExpanded={isRightExpanded}
               clearHistoryData={clearHistoryData}
               connectionStatus={connectionStatus}
-              setMessages={setMessages}
-              isDeleteChatLoading={false}
             />
           )}
           <SideNav
@@ -1092,8 +1090,6 @@ const Dashboard: React.FC = () => {
             isExpanded={isRightExpanded}
             clearHistoryData={clearHistoryData}
             connectionStatus={connectionStatus}
-            setMessages={setMessages}
-            isDeleteChatLoading={false}
           />
         )}
         <SideNav

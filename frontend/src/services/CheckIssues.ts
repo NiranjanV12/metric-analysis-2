@@ -22,6 +22,7 @@ export interface CheckIssuesResponse {
     model?: string;
     total_tokens?: number;
     response_time?: number;
+    messages?: AgentMessage[];
   };
   message?: string;
 }
