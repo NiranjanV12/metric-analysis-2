@@ -1,0 +1,27 @@
+{
+  "application": "ipsh",
+  "logs": [
+    {
+      "timestamp": "2021-08-11T21:52:15.959",
+      "level": "ERROR",
+      "message": "ipsh : File not found error",
+    },
+    {
+      "timestamp": "2021-08-11T21:57:47.248",
+      "level": "ERROR",
+      "message": "ipsh: -------------------------------------------------------------------
+GMS: address=idivpaybo4-61645 (flags=0), SIGNATURE=36 bytes, ID=   , HOST=10.0.0.1, PORT=1129, TYPE=   , QUEUE=    , NAME=10.0.0.1(1129)), cluster=JRPT_Cluster, physical address=10.0.0.1:7800
+-------------------------------------------------------------------
+<Aug 11, 2021 10:41:54,670 AM IST> <Error> <HTTP> <BEA-101017> <[ServletContext@294501796[app:ipsh module:ipsh.war path:null spec-version:4.0]] Root cause of ServletException.
+java.lang.NullPointerException
+      at jet.server.servlets.JRServlet.init(JRServlet.java:699)
+      at weblogic.servlet.internal.StubSecurityHelper$ServletInitAction.run(StubSecurityHelper.java:356)
+      at weblogic.servlet.internal.StubSecurityHelper$ServletInitAction.run(StubSecurityHelper.java:307)
+      at weblogic.security.acl.internal.AuthenticatedSubject.doAs(AuthenticatedSubject.java:344)
+      at weblogic.security.service.SecurityManager.runAsForUserCode(SecurityManager.java:197)
+      Truncated."
+    }
+  ]
+}
+
+ 

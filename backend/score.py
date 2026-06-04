@@ -1259,9 +1259,12 @@ async def get_service_health():
     try:
         start = time.time()
         services_config = os.environ.get("SERVICES_TO_MONITOR", "[]")
-        
+        logging.info(services_config)
+
         try:
             services = json.loads(services_config)
+            logging.info(services)
+
         except json.JSONDecodeError:
             return create_api_response(
                 'Failed',
@@ -1278,7 +1281,8 @@ async def get_service_health():
             """Check health of a single service."""
             service_name = service.get("serviceName", "Unknown")
             health_url = service.get("healthUrl", "")
-            
+            logging.info(service_name)
+
             if not health_url:
                 return {
                     "id": str(hash(service_name)),
@@ -1327,6 +1331,8 @@ async def get_service_health():
             'logging_time': formatted_time(datetime.now(timezone.utc)),
             'elapsed_api_time': f'{elapsed_time:.2f}'
         }
+        logging.info("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+
         logger.log_struct(json_obj, "INFO")
         
         return create_api_response(

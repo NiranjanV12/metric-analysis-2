@@ -4,7 +4,6 @@ import os
 from langchain_litellm import ChatLiteLLM
 from langchain_experimental.graph_transformers.diffbot import DiffbotGraphTransformer
 from langchain_experimental.graph_transformers import LLMGraphTransformer
-from langchain_experimental.graph_transformers.llm import _Graph
 from src.shared.constants import ADDITIONAL_INSTRUCTIONS
 from src.shared.llm_graph_builder_exception import LLMGraphBuilderException
 import re
@@ -178,21 +177,10 @@ async def get_graph_document_list(
         if "diffbot_api_key" in dir(llm):
             llm_transformer = llm
         else:
-            try:
-                llm.with_structured_output(_Graph)
-                supports_structured_output = True
-            except Exception:
-                supports_structured_output = False
-            if supports_structured_output:
-                logging.info("LLM supports structured output; including descriptions in graph")
-                node_properties = ["description"]
-                relationship_properties = ["description"]
-                ignore_tool_usage = False
-            else:
-                logging.info("LLM does not support structured output; excluding descriptions in graph") 
-                node_properties = False
-                relationship_properties = False
-                ignore_tool_usage = True
+            logging.info("Using text-based graph extraction (structured output schema incompatible with OpenAI strict validation)")
+            node_properties = False
+            relationship_properties = False
+            ignore_tool_usage = True
             
             llm_transformer = LLMGraphTransformer(
                 llm=llm,

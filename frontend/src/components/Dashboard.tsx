@@ -57,6 +57,7 @@ const Dashboard: React.FC = () => {
   const [isRightExpanded, setIsRightExpanded] = useState<boolean>(false);
   const [showDrawerChatbot, setShowDrawerChatbot] = useState<boolean>(true);
   const [chatStarted, setChatStarted] = useState<boolean>(false);
+  const [disp1, _setDisp1] = useState<boolean>(false);
   const {
     connectionStatus,
     setConnectionStatus,
@@ -150,7 +151,7 @@ const Dashboard: React.FC = () => {
               welcomeMessage += `${response.data.healthy_services} healthy, `;
               welcomeMessage += `${response.data.unhealthy_services} unhealthy\n\n`;
             }
-            if (response.data.messages && response.data.messages.length > 0) {
+            if (disp1 && response.data.messages && response.data.messages.length > 0) {
               welcomeMessage += '**AI Analysis:**\n';
               response.data.messages.forEach((msg) => {
                 welcomeMessage += `### ${msg.type}\n${msg.content}\n\n`;
@@ -213,11 +214,12 @@ const Dashboard: React.FC = () => {
   ]);
 
   const [transactionData] = useState<TransactionData[]>([
-    { type: 'GET', count: 890 },
-    { type: 'POST', count: 450 },
-    { type: 'PUT', count: 120 },
-    { type: 'DELETE', count: 85 },
-    { type: 'PATCH', count: 65 },
+    { type: 'DC', count: 890 },
+    { type: 'NEFT', count: 450 },
+    { type: 'RTGS', count: 120 },
+    { type: 'ACH', count: 1000 },
+    { type: 'DD', count: 65 },
+    { type: 'Warrant', count: 30 },
   ]);
 
   const [quadrantIssues, setQuadrantIssues] = useState<Record<number, CheckIssuesResponse | null>>({});
@@ -409,8 +411,8 @@ const Dashboard: React.FC = () => {
   const getQuadrantTitle = (quadrant: number) => {
     const titles: Record<number, string> = {
       0: 'All Issues',
-      1: 'HTTP Status Code',
-      2: 'Service Overview Status',
+      1: 'Service Overview Status',
+      2: 'HTTP Status Code',
       3: 'Log Monitoring',
       4: 'Transaction Monitoring',
     };
@@ -471,7 +473,7 @@ const Dashboard: React.FC = () => {
               <nav className='flex items-center justify-between flex-row' role='navigation'>
                 <section className='flex w-1/3 shrink-0 grow-0 items-center min-w-[200px]'></section>
                 <section className='flex w-1/3 justify-center'>
-                  <Typography variant='h4'>Service Observability Dashboard</Typography>
+                  <Typography variant='h4'>Observability Dashboard</Typography>
                 </section>
                 <section className='items-center justify-end w-1/3 grow-0 flex'>
                   <div
@@ -528,8 +530,11 @@ const Dashboard: React.FC = () => {
               </Typography>
 
               <div className='grid grid-cols-2 gap-4 h-[calc(100vh-180px)]' style={{ minWidth: '1200px' }}>
-                {/* Quadrant 1: HTTP Status Code Graph */}
-                <div className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'>
+                {/* Quadrant 1: Service Overview Status */}
+                <div
+                  className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'
+                  style={{ minWidth: '600px' }}
+                >
                   <div className='flex justify-center items-center mb-4 relative'>
                     <Typography variant='h5'>{getQuadrantTitle(1)}</Typography>
                     <div className='absolute right-0'>
@@ -539,29 +544,6 @@ const Dashboard: React.FC = () => {
                         clean
                         size='small'
                         onClick={() => handleCheckIssues(1)}
-                        placement='left'
-                      >
-                        <MdBugReport />
-                      </IconButtonWithToolTip>
-                    </div>
-                  </div>
-                  <div className='flex-1 overflow-auto'>{renderBarChart(httpStatusData, (d) => `${d.statusCode}`)}</div>
-                </div>
-
-                {/* Quadrant 2: Service Overview Status */}
-                <div
-                  className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'
-                  style={{ minWidth: '600px' }}
-                >
-                  <div className='flex justify-center items-center mb-4 relative'>
-                    <Typography variant='h5'>{getQuadrantTitle(2)}</Typography>
-                    <div className='absolute right-0'>
-                      <IconButtonWithToolTip
-                        label='Check Issues'
-                        text='Check Issues'
-                        clean
-                        size='small'
-                        onClick={() => handleCheckIssues(2)}
                         placement='left'
                       >
                         <MdBugReport />
@@ -595,6 +577,26 @@ const Dashboard: React.FC = () => {
                       }}
                     />
                   </div>
+                </div>
+
+                {/* Quadrant 2: HTTP Status Code Graph */}
+                <div className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'>
+                  <div className='flex justify-center items-center mb-4 relative'>
+                    <Typography variant='h5'>{getQuadrantTitle(2)}</Typography>
+                    <div className='absolute right-0'>
+                      <IconButtonWithToolTip
+                        label='Check Issues'
+                        text='Check Issues'
+                        clean
+                        size='small'
+                        onClick={() => handleCheckIssues(2)}
+                        placement='left'
+                      >
+                        <MdBugReport />
+                      </IconButtonWithToolTip>
+                    </div>
+                  </div>
+                  <div className='flex-1 overflow-auto'>{renderBarChart(httpStatusData, (d) => `${d.statusCode}`)}</div>
                 </div>
 
                 {/* Quadrant 3: Log Monitoring */}
@@ -868,8 +870,11 @@ const Dashboard: React.FC = () => {
             </Typography>
 
             <div className='grid grid-cols-2 gap-4 h-[calc(100vh-180px)]' style={{ minWidth: '1200px' }}>
-              {/* Quadrant 1: HTTP Status Code Graph */}
-              <div className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'>
+              {/* Quadrant 1: Service Overview Status */}
+              <div
+                className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'
+                style={{ minWidth: '600px' }}
+              >
                 <div className='flex justify-center items-center mb-4 relative'>
                   <Typography variant='h5'>{getQuadrantTitle(1)}</Typography>
                   <div className='absolute right-0'>
@@ -879,29 +884,6 @@ const Dashboard: React.FC = () => {
                       clean
                       size='small'
                       onClick={() => handleCheckIssues(1)}
-                      placement='left'
-                    >
-                      <MdBugReport />
-                    </IconButtonWithToolTip>
-                  </div>
-                </div>
-                <div className='flex-1 overflow-auto'>{renderBarChart(httpStatusData, (d) => `${d.statusCode}`)}</div>
-              </div>
-
-              {/* Quadrant 2: Service Overview Status */}
-              <div
-                className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'
-                style={{ minWidth: '600px' }}
-              >
-                <div className='flex justify-center items-center mb-4 relative'>
-                  <Typography variant='h5'>{getQuadrantTitle(2)}</Typography>
-                  <div className='absolute right-0'>
-                    <IconButtonWithToolTip
-                      label='Check Issues'
-                      text='Check Issues'
-                      clean
-                      size='small'
-                      onClick={() => handleCheckIssues(2)}
                       placement='left'
                     >
                       <MdBugReport />
@@ -935,6 +917,26 @@ const Dashboard: React.FC = () => {
                     }}
                   />
                 </div>
+              </div>
+
+              {/* Quadrant 2: HTTP Status Code Graph */}
+              <div className='p-4 flex flex-col border rounded-lg bg-palette-neutral-bg-default'>
+                <div className='flex justify-center items-center mb-4 relative'>
+                  <Typography variant='h5'>{getQuadrantTitle(2)}</Typography>
+                  <div className='absolute right-0'>
+                    <IconButtonWithToolTip
+                      label='Check Issues'
+                      text='Check Issues'
+                      clean
+                      size='small'
+                      onClick={() => handleCheckIssues(2)}
+                      placement='left'
+                    >
+                      <MdBugReport />
+                    </IconButtonWithToolTip>
+                  </div>
+                </div>
+                <div className='flex-1 overflow-auto'>{renderBarChart(httpStatusData, (d) => `${d.statusCode}`)}</div>
               </div>
 
               {/* Quadrant 3: Log Monitoring */}

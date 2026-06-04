@@ -1017,6 +1017,8 @@ def convertToMarkdown(state: AgentState):
                         else:
                             md += "- None\n"
                         md += "\n"
+                    md += '<button style="padding: 8px 16px; background-color: #008cff; color: white; border: none; border-radius: 4px; cursor: pointer;">Execute Commands and Queries</button>\n'
+                    md += "\n"
                     markdown_results.append(md)
                     continue
             except (json.JSONDecodeError, Exception) as e:
@@ -1100,14 +1102,14 @@ builder.add_node("errorSummary", errorSummary)
 ##builder.add_edge("getLogsData", "getErrors")
 ##builder.add_edge("getHealthUrlData", "insertHealthUrlData")
 
-#builder.add_edge(START, "insertLogsData")
-#builder.add_edge(START, "insertHealthUrlData")
+builder.add_edge(START, "insertLogsData")
+builder.add_edge(START, "insertHealthUrlData")
 
-#builder.add_edge("insertLogsData", "getLogsErrors")
-#builder.add_edge("insertHealthUrlData", "getHealthErrors")
+builder.add_edge("insertLogsData", "getLogsErrors")
+builder.add_edge("insertHealthUrlData", "getHealthErrors")
 
-builder.add_edge(START, "getLogsErrors")
-builder.add_edge(START, "getHealthErrors")
+#builder.add_edge(START, "getLogsErrors")
+#builder.add_edge(START, "getHealthErrors")
 builder.add_edge("getLogsErrors", "errorSummary")
 builder.add_edge("getHealthErrors", "errorSummary")
 

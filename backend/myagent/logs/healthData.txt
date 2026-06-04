@@ -2,23 +2,35 @@
   "status": "Success",
   "data": [
     {
-      "id": "-3162270376313122944",
-      "service": "static-webapp",
+      "id": "-5305201537236078502",
+      "service": "arx",
       "healthUrl": "http://localhost:7050/microsvc-static-1/health",
       "status": "Running"
     },
     {
-      "id": "2839595698020519830",
-      "service": "app-service",
+      "id": "-5302391150221286468",
+      "service": "cbx",
       "healthUrl": "http://localhost:7051/microsvc-static-1/health",
       "status": "Stopped"
     },
     {
-      "id": "-1043927596057914959",
-      "service": "static-3",
+      "id": "-4915207063526048596",
+      "service": "ipsh",
+      "healthUrl": "http://localhost:7050/microsvc-static-1/health",
+      "status": "Running"
+    },
+    {
+      "id": "1912733763181757804",
+      "service": "c_services",
+      "healthUrl": "http://localhost:7051/microsvc-static-1/health",
+      "status": "Stopped"
+    },
+    {
+      "id": "6575093732163372724",
+      "service": "mhub",
       "healthUrl": "http://localhost:7050/microsvc-static-1/health",
       "status": "Running"
     }
   ],
-  "message": "Retrieved health status for 3 services"
+  "message": "Retrieved health status for 5 services"
 }
