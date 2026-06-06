@@ -186,8 +186,13 @@ def parseJson2(json, key, labelIndex=None):
             labels = n_node.get("labels", [])
             properties = n_node.get("properties", {})
             entity_id = properties.get("id", "")
-            if labelIndex < len(labels) and entity_id:
-                output[labels[labelIndex]] = entity_id
+            if entity_id:
+                display_label = key
+                for label in labels:
+                    if label != "__Entity__":
+                        display_label = label
+                        break
+                output[display_label] = entity_id
         return output
 
 
@@ -789,7 +794,7 @@ def errorSummary(state: AgentState):
             prompt = (
             f"-----\n##Goal:\n {goal}\n"
             f"-----\n##Rules: \n"
-            f"- Extract component_name(s) from BOTH 'StoppedServices' AND 'ErrorLogs' messages.\n"
+            f"- Extract component_name(s) from BOTH 'StoppedServices' where reason for failure is 'Not Running'  AND 'ErrorLogs' messages.\n"
             f"- If extracted component_name found in valid_service_names list then only → component_type = 'Service' else component_type = 'Functionality'.\n"
             f"- valid_service_names are: {json.dumps(valid_service_names)}\n"
             f"-----\n##Findings:\n{state['extractedErrorContext']}\n"

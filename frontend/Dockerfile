@@ -1,9 +1,9 @@
 # Step 1: Build the React application
 FROM node:20 AS build
 
-ARG VITE_BACKEND_API_URL="http://localhost:8000"
+ARG VITE_BACKEND_API_URL="http://10.229.224.135:8000"
 ARG VITE_REACT_APP_SOURCES="local,youtube,wiki,s3,web"
-ARG VITE_LLM_MODELS="diffbot,openai_gpt_5.2,openai_gpt_5_mini,gemini_2.5_flash,ollama,openai_gpt_4o"
+ARG VITE_LLM_MODELS="diffbot,openai_gpt_5.2,openai_gpt_5_mini,gemini_2.5_flash,ollama,openai_gpt_4o,NEEV_Gemini"
 ARG VITE_GOOGLE_CLIENT_ID=""
 ARG VITE_BLOOM_URL="https://workspace-preview.neo4j.io/workspace/explore?connectURL={CONNECT_URL}&search=Show+me+a+graph&featureGenAISuggestions=true&featureGenAISuggestionsInternal=true"
 ARG VITE_TIME_PER_PAGE=50

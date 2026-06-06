@@ -1,5 +1,7 @@
-import Neo4jLogoBW from '../../logo.svg';
-import Neo4jLogoColor from '../../logo-color.svg';
+// import Neo4jLogoBW from '../../logo.svg';
+// import Neo4jLogoColor from '../../logo-color.svg';
+import Neo4jLogoBW from '../../HDFC_Bank_Logo.svg';
+import Neo4jLogoColor from '../../HDFC_Bank_Logo.svg';
 import {
   MoonIconOutline,
   SunIconOutline,
